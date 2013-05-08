@@ -19,10 +19,12 @@ logger = logging.getLogger(__name__)
 class Client(object):
 
     def __init__(self, hostname, nick, port=IRC_PORT,
-            local_hostname=None, server_name=None, real_name=None):
+            local_hostname=None, server_name=None, real_name=None,
+            disconnect_handler=None):
         self.hostname = hostname
         self.port = port
         self.nick = nick
+        self._disconnect_handler = disconnect_handler
         self._socket = None
         self.real_name = real_name or nick
         self.local_hostname = local_hostname or socket.gethostname()
@@ -76,15 +78,21 @@ class Client(object):
 
     def _recv_loop(self):
         buf = ''
-        while True:
-            data = self._socket.recv(512)
-            buf += data
-            pos = buf.find("\r\n")
-            while pos >= 0:
-                line = buf[0:pos]
-                self._recv_queue.put(line)
-                buf = buf[pos + 2:]
+        while True: 
+            data = gevent.with_timeout(.25, self._socket.recv, 512, timeout_value=None)
+            if data is not None:
+                #not timeout
+                buf += data
                 pos = buf.find("\r\n")
+                while pos >= 0:
+                    line = buf[0:pos]
+                    self._recv_queue.put(line)
+                    buf = buf[pos + 2:]
+                    pos = buf.find("\r\n")
+            if data == '':
+                #disconnect
+                if self._disconnect_handler:
+                    self._disconnect_handler(self)
 
     def _send_loop(self):
         while True:
