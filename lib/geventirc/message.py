@@ -78,17 +78,27 @@ class Message(object):
         server_name = None
         user = None
         host = None
-        pos = self.prefix.find('!')
-        if pos >= 0:
-            server_name, userhost = self.prefix[:pos], self.prefix[pos+1:]
-            pos = self.prefix.find('@')
-            if pos >= 0:
-                user, host = userhost[:pos], userhost[pos+1:]
+        if '!' in self.prefix:
+            server_name, userhost = self.prefix.split('!', 1)
+            if '@' in userhost:
+                user, host = userhost.split('@', 1)
             else:
                 host = userhost
         else:
             server_name = self.prefix
         return server_name, user, host
+
+    @property
+    def sender(self):
+        return self.prefix_parts[0]
+
+    @property
+    def user_agent(self):
+        return self.prefix_parts[1]
+
+    @property
+    def host(self):
+        return self.prefix_parts[2]
 
     def encode(self):
         return irc_unsplit(self.prefix, self.command, self.params) + "\r\n"
