@@ -24,7 +24,7 @@ class Client(object):
         self.hostname = hostname
         self.port = port
         self.nick = nick
-        self._disconnect_handler = disconnect_handler
+        self._disconnect_handler = disconnect_handler or (lambda client: client.kill())
         self._socket = None
         self.real_name = real_name or nick
         self.local_hostname = local_hostname or socket.gethostname()
@@ -78,21 +78,23 @@ class Client(object):
 
     def _recv_loop(self):
         buf = ''
-        while True: 
-            data = gevent.with_timeout(.25, self._socket.recv, 512, timeout_value=None)
-            if data is not None:
-                #not timeout
-                buf += data
-                pos = buf.find("\r\n")
-                while pos >= 0:
-                    line = buf[0:pos]
-                    self._recv_queue.put(line)
-                    buf = buf[pos + 2:]
+        try:
+            while True:
+                data = gevent.with_timeout(.25, self._socket.recv, 512, timeout_value=None)
+                if data is not None:
+                    #not timeout
+                    buf += data
                     pos = buf.find("\r\n")
-            if data == '':
-                #disconnect
-                if self._disconnect_handler:
+                    while pos >= 0:
+                        line = buf[0:pos]
+                        self._recv_queue.put(line)
+                        buf = buf[pos + 2:]
+                        pos = buf.find("\r\n")
+                if data == '':
+                    #disconnect
                     self._disconnect_handler(self)
+        except socket.error:
+            self._disconnect_handler(self)
 
     def _send_loop(self):
         while True:
