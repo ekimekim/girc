@@ -20,7 +20,7 @@ class Client(object):
 
     def __init__(self, hostname, nick, port=IRC_PORT,
             local_hostname=None, server_name=None, real_name=None,
-            disconnect_handler=None):
+            disconnect_handler=None, debug=False):
         self.hostname = hostname
         self.port = port
         self.nick = nick
@@ -34,6 +34,7 @@ class Client(object):
         self._group = gevent.pool.Group()
         self._handlers = {}
         self._global_handlers = set([])
+        self.debug = debug
 
     def add_handler(self, to_call, *commands):
         if not commands:
@@ -99,6 +100,7 @@ class Client(object):
     def _send_loop(self):
         while True:
             command = self._send_queue.get()
+            if self.debug: print "DEBUG: Send %r" % command.encode()
             self._socket.sendall(command.encode())
 
     def _process_loop(self):
@@ -111,6 +113,7 @@ class Client(object):
                     self.real_name))
         while True:
             data = self._recv_queue.get()
+            if self.debug: print "DEBUG: Recv %r" % data
             msg = message.CTCPMessage.decode(data)
             self._handle(msg)
 
