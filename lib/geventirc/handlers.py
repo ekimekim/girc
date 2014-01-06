@@ -4,7 +4,8 @@ from geventirc import replycode
 
 
 def ping_handler(client, msg):
-    client.send_message(message.Pong())
+    data = msg.params[0].lstrip(':') if msg.params else None
+    client.send_message(message.Pong(data))
 
 def print_handler(client, msg):
     print msg.encode()[:-2]

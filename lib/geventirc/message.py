@@ -169,8 +169,9 @@ class PrivMsg(Command):
 
 
 class Pong(Command):
-    def __init__(self, prefix=None):
-        super(Pong, self).__init__(None, prefix=prefix)
+    def __init__(self, data=None, prefix=None):
+        params = None if data is None else (data,)
+        super(Pong, self).__init__(params, prefix=prefix)
 
 
 X_DELIM = chr(001)
