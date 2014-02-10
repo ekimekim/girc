@@ -38,6 +38,9 @@ class NickServHandler(object):
         self.current_nick = None
         self.password = password
 
+    def authenticate(self, client):
+        client.msg('nickserv', 'identify %s' % self.password)
+
     def __call__(self, client, msg):
         if msg.command == str(replycode.ERR_NICKNAMEINUSE) or \
                 msg.command == str(replycode.ERR_NICKCOLLISION):
@@ -48,8 +51,7 @@ class NickServHandler(object):
         if msg.command == '001':
             client.send_message(message.Nick(self.nick))
             self.current_nick = self.nick
-            msg = message.PrivMsg('nickserv', 'identify ' + self.password)
-            client.send_message(msg)
+            self.authenticate(client)
 
 
 class ReplyWhenQuoted(object):
