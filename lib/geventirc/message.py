@@ -219,7 +219,7 @@ def _dequote(string, table):
             last_char = char
             continue
         if last_char + char in table:
-            buf += string[cursor:pos] + table[char]
+            buf += string[cursor:pos] + table[last_char + char]
             cursor = pos + 1
         last_char = char
 
