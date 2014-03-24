@@ -48,6 +48,13 @@ class Client(object):
             command = str(command).upper()
             self._handlers.setdefault(command, set()).add(to_call)
 
+	def handler(self, *commands):
+		"""Alternate form of add_handler, returns a decorator"""
+		def _handler(fn):
+			self.add_handler(fn, *commands)
+			return fn
+		return _handler
+
     def _handle(self, msg):
         handlers = self._global_handlers | self._handlers.get(msg.command, set())
         for handler in handlers:
