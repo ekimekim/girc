@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 
 import logging
+import errno
 
 import gevent.queue
 import gevent.pool
@@ -19,12 +20,12 @@ logger = logging.getLogger(__name__)
 class Client(object):
 
     def __init__(self, hostname, nick, port=IRC_PORT,
-            local_hostname=None, server_name=None, real_name=None,
-            disconnect_handler=None, debug=False):
+                 local_hostname=None, server_name=None, real_name=None,
+                 disconnect_handler=None):
         self.hostname = hostname
         self.port = port
         self.nick = nick
-        self._disconnect_handler = disconnect_handler or (lambda client: client.kill())
+        self._disconnect_handler = disconnect_handler or (lambda client: client.stop())
         self._socket = None
         self.real_name = real_name or nick
         self.local_hostname = local_hostname or socket.gethostname()
@@ -33,8 +34,7 @@ class Client(object):
         self._send_queue = gevent.queue.Queue()
         self._group = gevent.pool.Group()
         self._handlers = {}
-        self._global_handlers = set([])
-        self.debug = debug
+        self._global_handlers = set()
 
     def add_handler(self, to_call, *commands):
         if not commands:
@@ -46,82 +46,77 @@ class Client(object):
 
         for command in commands:
             command = str(command).upper()
-            if self._handlers.has_key(command):
-                self._handlers[command].add(to_call)
-                continue
-            self._handlers[command] = set([to_call])
+            self._handlers.setdefault(command, set()).add(to_call)
 
     def _handle(self, msg):
         handlers = self._global_handlers | self._handlers.get(msg.command, set())
-        if handlers is not None:
-            for handler in handlers:
-                self._group.spawn(handler, self, msg)
+        for handler in handlers:
+            self._group.spawn(handler, self, msg)
 
     def send_message(self, msg):
         self._send_queue.put(msg.encode())
 
     def start(self):
-        address = None
-        try:
-            address = (socket.gethostbyname(self.hostname), self.port)
-        except socket.gaierror:
-            logger.error('hostname not found')
-            raise
-
-        logger.info('connecting to %r...' % (address,))
+        logger.info('connecting to %r:%d', self.hostname, self.port)
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._socket.connect(address)
+        self._socket.connect((self.hostname, self.port))
         self._group.spawn(self._send_loop)
-        self._group.spawn(self._process_loop)
         self._group.spawn(self._recv_loop)
-        # give control back to the hub
-        gevent.sleep(0)
+        self.send_message(message.Nick(self.nick))
+        self.send_message(message.User(self.nick,
+                                       self.local_hostname,
+                                       self.server_name,
+                                       self.real_name))
 
     def _recv_loop(self):
-        buf = ''
+        partial = ''
         try:
             while True:
-                data = gevent.with_timeout(.25, self._socket.recv, 512, timeout_value=None)
-                if data is not None:
-                    #not timeout
-                    buf += data
-                    pos = buf.find("\r\n")
-                    while pos >= 0:
-                        line = buf[0:pos]
-                        self._recv_queue.put(line)
-                        buf = buf[pos + 2:]
-                        pos = buf.find("\r\n")
-                if data == '':
-                    #disconnect
-                    self._disconnect_handler(self)
+                try:
+                    data = self._socket.recv(4096)
+                except socket.error as ex:
+                    if ex.errno == errno.EINTR: # retry on EINTR
+                        continue
+                    raise
+                if not data:
+                    logger.info("recv socket closed")
+                    break
+				lines = (partial+data).split('\r\n')
+				partial = lines.pop() # everything after final \r\n
+				for line in lines:
+					self._process(line)
         except socket.error:
-            self._disconnect_handler(self)
+            logger.exception("Error while reading from recv socket")
+        if partial:
+            logger.warning("recv stream cut off mid-line, unused data: %r", partial)
+        self._disconnect_handler(self)
 
     def _send_loop(self):
         while True:
-            command = self._send_queue.get()
-            if self.debug: print "DEBUG: Send %r" % command.encode()
-            self._socket.sendall(command.encode())
+            message = self._send_queue.get()
+            line = message.encode()
+            logger.debug("Sending message: %r", line)
+            self._socket.sendall(line)
+            if message.command == 'QUIT':
+                logger.info("QUIT sent, client shutting down")
+                self.stop()
 
-    def _process_loop(self):
-        self.send_message(message.Nick(self.nick))
-        self.send_message(
-                message.User(
-                    self.nick,
-                    self.local_hostname,
-                    self.server_name,
-                    self.real_name))
-        while True:
-            data = self._recv_queue.get()
-            if self.debug: print "DEBUG: Recv %r" % data
-            msg = message.CTCPMessage.decode(data)
-            self._handle(msg)
+    def _process(self, line):
+        logging.debug("Received message: %r", line)
+        try:
+            msg = message.CTCPMessage.decode(line)
+        except Exception:
+            logging.warning("Could not decode message from server: %r", line, exc_info=True)
+        self._handle(msg)
 
     def stop(self):
-        self._group.kill()
-        if self._socket is not None:
-            self._socket.close()
-            self._socket = None
+        # we spawn a child greenlet so things don't screw up if current greenlet is in self._group
+        def _stop():
+            self._group.kill()
+            if self._socket is not None:
+                self._socket.close()
+                self._socket = None
+        gevent.spawn(_stop).join()
 
     def join(self):
         self._group.join()
@@ -131,7 +126,6 @@ class Client(object):
 
     def quit(self, msg=None):
         self.send_message(message.Quit(msg))
-        self.stop()
 
 
 if __name__ == '__main__':
