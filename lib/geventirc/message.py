@@ -9,10 +9,7 @@ class ProtocolViolationError(StandardError):
     pass
 
 def is_valid_param(param):
-    for invalid in INVALID_CHARS:
-        if invalid in param:
-            return False
-    return True
+	return not any(c in param for c in INVALID_CHARS)
 
 def irc_split(data):
     prefix = ''
@@ -66,7 +63,6 @@ class Message(object):
         return cls(command, params, prefix=prefix)
 
     def __init__(self, command, params, prefix=None):
-        assert command, 'command is mandatory'
         self.prefix = prefix
         self.command = command
         self.params = params
@@ -105,7 +101,6 @@ class Message(object):
 
 
 class Command(Message):
-
     def __init__(self, params, command=None, prefix=None):
         if command is None:
             command = self.__class__.__name__.upper()
@@ -117,29 +112,27 @@ class Nick(Command):
     def __init__(self, nickname, hopcount=None, prefix=None):
         params = [nickname]
         if hopcount is not None:
-            assert isinstance(hopcount, int), 'hopcount should be int if not none'
+            if not isinstance(hopcount, int):
+				raise ValueError("hopcount must be int")
             params.append(str(hopcount))
         super(Nick, self).__init__(params, prefix=prefix)
 
 
 class User(Command):
-
     def __init__(self, username, hostname, servername, realname, prefix=None):
         params = [username, hostname, servername, realname]
         super(User, self).__init__(params, prefix=prefix)
 
 
 class Quit(Command):
-
     def __init__(self, msg, prefix=None):
-        params = None
+        params = []
         if msg is not None:
-            params = msg
+            params.append(msg)
         super(Quit, self).__init__(params, prefix=prefix)
 
 
 class Join(Command):
-
     def __init__(self, channels, prefix=None):
         params = []
         if isinstance(channels, basestring):
@@ -158,25 +151,27 @@ class Join(Command):
                     keys.append(key)
             params = [",".join(chans), ",".join(keys)]
 
-        assert params, 'invalid channel ' + channels
+        if not params:
+			raise ValueError('invalid channel: %r' % channels)
         super(Join, self).__init__(params, prefix=prefix)
 
 
 class PrivMsg(Command):
-
     def __init__(self, to, msg, prefix=None):
         super(PrivMsg, self).__init__([to, msg], prefix=prefix)
 
 
 class Pong(Command):
     def __init__(self, data=None, prefix=None):
-        params = None if data is None else (data,)
+		params = []
+		if data:
+			params.append(data)
         super(Pong, self).__init__(params, prefix=prefix)
 
 
-X_DELIM = chr(001)
-X_QUOTE = chr(134)
-M_QUOTE = chr(020)
+X_DELIM = '\x01'
+X_QUOTE = '\x86'
+M_QUOTE = '\x10'
 
 _low_level_quote_table = {
     NUL: M_QUOTE + '0',
@@ -185,19 +180,15 @@ _low_level_quote_table = {
     M_QUOTE: M_QUOTE * 2
 }
 
-_low_level_dequote_table = {}
-for k, v in _low_level_quote_table.items():
-    _low_level_dequote_table[v] = k
-
 _ctcp_quote_table = {
     X_DELIM: X_QUOTE + 'a',
     X_QUOTE: X_QUOTE * 2
 }
 
-_ctcp_dequote_table = {}
-for k, v in _ctcp_quote_table.items():
-    _ctcp_dequote_table[v] = k
+_low_level_dequote_table = {v: k for k, v in _low_level_quote_table.items()}
+_ctcp_dequote_table = {v: k for k, v in _ctcp_quote_table.items()}
 
+# TODO clean _quote and _dequote
 def _quote(string, table):
     cursor = 0
     buf = ''
@@ -295,7 +286,5 @@ class CTCPMessage(Message):
 
 
 class Me(CTCPMessage):
-
     def __init__(self, to, action, prefix=None):
-        super(Me, self).__init__(
-                'PRIVMSG', [to], [('ACTION', action)], prefix=prefix)
+        super(Me, self).__init__('PRIVMSG', [to], [('ACTION', action)], prefix=prefix)
