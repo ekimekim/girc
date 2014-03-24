@@ -29,9 +29,12 @@ def nick_in_user_handler(self, client, msg):
 
 class NickServHandler(object):
 
-    commands = ['001',
+    commands = [
+		'001',
         replycode.ERR_NICKNAMEINUSE,
-        replycode.ERR_NICKCOLLISION]
+        replycode.ERR_NICKCOLLISION,
+		'NICK',
+	]
 
     def __init__(self, nick, password):
         self.nick = nick
