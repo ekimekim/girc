@@ -1,2 +1,2 @@
-from geventirc.irc import Client
+from geventirc.client import Client
 
