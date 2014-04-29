@@ -1,5 +1,5 @@
 
-from geventirc import irc, message, replycode, handlers
+from geventirc import client, message, replycode, handlers
 
 USER_MODES = 'USER', 'VOICED', 'OP', 'ADMIN' # all admins are ops, all ops are voiced, etc.
 USER, VOICED, OP, ADMIN = USER_MODES
@@ -17,7 +17,7 @@ USER_MODE_CHARS = {
 new_lists_dict = lambda: {k: [] for k in USER_MODES}
 
 
-class AutoClient(irc.Client):
+class AutoClient(client.Client):
 	"""A standard client with some preset handlers to automatically do common tasks:
 		* Keeps better track of its nick
 		* Auto-joins given channels
