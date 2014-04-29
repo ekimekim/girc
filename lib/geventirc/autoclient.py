@@ -65,27 +65,29 @@ class AutoClient(client.Client):
 			lists = new_lists_dict()
 			self.user_lists[channel] = lists
 			for user in users:
-				top_mode = any(mode for mode in USER_MODES
-				                if user.startswith(USER_LIST_CHARS[mode]))
-				top_mode_index = USER_MODES.index(user_mode)
+				top_mode = [mode for mode in USER_MODES
+				            if user.startswith(USER_LIST_CHARS[mode])][0]
+				top_mode_index = USER_MODES.index(top_mode)
 				user = user.lstrip(''.join(USER_LIST_CHARS.values()))
 				for mode in USER_MODES[:top_mode_index+1]:
 					lists[mode].append(user)
 		@self.handler('JOIN')
 		def user_joined(self, msg):
-			user, channel = msg.sender, msg.target
+			user = msg.sender
+			channel, = msg.params
 			lists = self.user_lists.setdefault(channel, new_lists_dict())
-			lists[USERS].append(user)
+			lists[USER].append(user)
 		@self.handler('PART', 'QUIT')
 		def user_left(self, msg):
-			user, channel = msg.sender, msg.target
+			user = msg.sender
+			channel, = msg.params
 			lists = self.user_lists.setdefault(channel, new_lists_dict())
 			for user_list in lists:
 				if user in user_list:
 					user_list.remove(user)
 		@self.handler('MODE')
 		def user_changed_mode(self, msg):
-			channel = msg.target
+			channel, = msg.params
 			flags, user = msg.params[1:3]
 			if not flags.startswith('+'):
 				raise NotImplementedError
@@ -110,4 +112,6 @@ class AutoClient(client.Client):
 
 	def _authenticate(self):
 		"""Override this if the irc server's auth mechanism differs"""
-		self.msg('nickserv', 'identify %s' % self.password)
+		from getpass import getpass
+		password = getpass()
+		self.msg('nickserv', 'identify %s' % password)

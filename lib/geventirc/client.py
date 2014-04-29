@@ -9,8 +9,6 @@ import gevent.pool
 from gevent import socket
 
 from geventirc import message
-from geventirc import replycode
-from geventirc import handlers
 
 IRC_PORT = 194
 IRCS_PORT = 994
@@ -48,12 +46,12 @@ class Client(object):
         self._group = gevent.pool.Group()
         self._handlers = defaultdict(set)
         self._global_handlers = set()
-        self._disconnect_handlers = set()
+        self.disconnect_handlers = set()
 
         if callable(disconnect_handler):
-            self._disconnect_handlers.add(disconnect_handler)
+            self.disconnect_handlers.add(disconnect_handler)
         else:
-            self._disconnect_handlers.update(disconnect_handler)
+            self.disconnect_handlers.update(disconnect_handler)
 
     def add_handler(self, to_call, *commands):
         """Add callback to be called upon any of *commands being recieved.
