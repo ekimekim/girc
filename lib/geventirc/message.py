@@ -9,7 +9,7 @@ class ProtocolViolationError(StandardError):
     pass
 
 def is_valid_param(param):
-	return not any(c in param for c in INVALID_CHARS)
+    return not any(c in param for c in INVALID_CHARS)
 
 def irc_split(data):
     prefix = ''
@@ -113,7 +113,7 @@ class Nick(Command):
         params = [nickname]
         if hopcount is not None:
             if not isinstance(hopcount, int):
-				raise ValueError("hopcount must be int")
+                raise ValueError("hopcount must be int")
             params.append(str(hopcount))
         super(Nick, self).__init__(params, prefix=prefix)
 
@@ -152,7 +152,7 @@ class Join(Command):
             params = [",".join(chans), ",".join(keys)]
 
         if not params:
-			raise ValueError('invalid channel: %r' % channels)
+            raise ValueError('invalid channel: %r' % channels)
         super(Join, self).__init__(params, prefix=prefix)
 
 
@@ -163,9 +163,9 @@ class PrivMsg(Command):
 
 class Pong(Command):
     def __init__(self, data=None, prefix=None):
-		params = []
-		if data:
-			params.append(data)
+        params = []
+        if data:
+            params.append(data)
         super(Pong, self).__init__(params, prefix=prefix)
 
 
