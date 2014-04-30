@@ -7,10 +7,7 @@ setup(name="geventirc",
       description="gevent based irc client",
       package_dir = {'':'lib'},
       packages=find_packages('lib'),
-      zip_safe=False,
       install_requires=[
-          'distribute',
           'gevent',
-        ],
-    )
-
+      ],
+     )
