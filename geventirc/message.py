@@ -1,165 +1,180 @@
-DELIM = chr(040)
-INVALID_CHARS = ["\r", "\n", "\0"]
-CR = "\r"
-NL = "\n"
-NUL = chr(0)
 
 
-class ProtocolViolationError(StandardError):
-    pass
+class InvalidMessage(Exception):
+    def __init__(self, data, message):
+		self.data = data
+		self.message = message
+		super(InvalidMessage, self).__init__(data, message)
+	def __str__(self):
+		return "Message {self.data!r} could not be parsed: {self.message}".format(self=self)
 
-def is_valid_param(param):
-    return not any(c in param for c in INVALID_CHARS)
 
-def irc_split(data):
-    prefix = ''
-    buf = data
-    trailing = None
-    command = None
+def normalize_channel(name):
+	if name.startswith('#') or name.startswith('&'):
+		return name
+	return '#{}'.format(name)
 
-    if buf.startswith(':'):
-        try:
-            prefix, buf = buf[1:].split(DELIM, 1)
-        except ValueError:
-            pass
-    try:
-        command, buf = buf.split(DELIM, 1)
-    except ValueError:
-        raise ProtocolViolationError('no command received: %r' % buf)
-    try:
-        buf, trailing = buf.split(DELIM + ':', 1)
-    except ValueError:
-        pass
-    params = buf.split(DELIM)
-    if trailing is not None:
-        params.append(trailing)
-    return prefix, command, params
 
-def irc_unsplit(prefix, command, params):
-    buf = ''
-    if prefix is not None:
-        buf += prefix + DELIM
-    buf += command + DELIM
-    if params is None:
-        pass
-    elif isinstance(params, basestring):
-        assert not params.startswith(':'), 'params must not start with :'
-        buf += ":" + params
-    else:
-        if params:
-            rparams, trailing = params[:-1], params[-1]
-            if rparams:
-                buf += DELIM.join(rparams) + DELIM
-            if trailing:
-                buf += ":" + trailing
-    return buf
+def decode(line):
+	sender = None
+	user = None
+	host = None
+
+	words = filter(None, line.split(' '))
+
+	if words[0].startswith(':'):
+		prefix = words.pop(0)
+		if '@' in prefix:
+			prefix, host = prefix.split('@', 1)
+		if '!' in prefix:
+			prefix, user = prefix.split('!', 1)
+		sender = prefix
+
+	if not words:
+		raise InvalidMessage(line, "no command given")
+	command = words.pop(0)
+
+	params = []
+	while words:
+		if words[0].startswith(':'):
+			params.append(' '.join(words)[1:])
+			break
+		params.append(words.pop(0))
+
+	return sender, user, host, command, params
+
+def encode(sender, user, host, command, params):
+	"""Note: does not try to validate valid chars for command, params, etc"""
+	parts = [command]
+	if sender or user or host:
+		prefix = ':{}'.format(sender or '')
+		if user:
+			prefix += '!{}'.format(user)
+		if host:
+			prefix += '@{}'.format(host)
+		parts = [prefix] + parts
+	if params:
+		last_param = params.pop()
+		parts += params + [':{}'.format(last_param)]
+	return ' '.join(map(str, parts))
 
 
 class Message(object):
 
     @classmethod
-    def decode(cls, data):
-        prefix, command, params = irc_split(data)
-        return cls(command, params, prefix=prefix)
+    def decode(cls, line):
+		sender, user, host, command, params = decode(line.strip())
+		return cls(command, *params, sender=sender, user=user, host=host)
 
-    def __init__(self, command, params, prefix=None):
-        self.prefix = prefix
+    def __init__(self, command, *params, **kwargs):
+		"""Takes kwargs sender, user, host"""
+		# due to limitations of python2, we take generic kwargs and pull out our desired args manually
         self.command = command
         self.params = params
-
-    @property
-    def prefix_parts(self):
-        """ return tuple(<servername/nick>, <user agent>, <host>)
-        """
-        server_name = None
-        user = None
-        host = None
-        if '!' in self.prefix:
-            server_name, userhost = self.prefix.split('!', 1)
-            if '@' in userhost:
-                user, host = userhost.split('@', 1)
-            else:
-                host = userhost
-        else:
-            server_name = self.prefix
-        return server_name, user, host
-
-    @property
-    def sender(self):
-        return self.prefix_parts[0]
-
-    @property
-    def user_agent(self):
-        return self.prefix_parts[1]
-
-    @property
-    def host(self):
-        return self.prefix_parts[2]
+		self.sender = kwargs.pop('sender', None)
+		self.user = kwargs.pop('user', None)
+		self.host = kwargs.pop('host', None)
+		if kwargs:
+			raise TypeError("Unexpected kwargs: {}".format(kwargs))
 
     def encode(self):
-        return irc_unsplit(self.prefix, self.command, self.params) + "\r\n"
+        return encode(self.sender, self.user, self.host, self.command, self.params) + '\r\n'
 
+	def __eq__(self, other):
+		if not isinstance(other, Message):
+			return False
+		ATTRS = {'sender', 'user', 'host', 'command', 'params'}
+		return all(getattr(self, attr) == getattr(other, attr) for attr in ATTRS)
 
-class Command(Message):
-    def __init__(self, params, command=None, prefix=None):
-        if command is None:
-            command = self.__class__.__name__.upper()
-        super(Command, self).__init__(command, params, prefix=prefix)
+	def __str__(self):
+		return "<{cls.__name__} ({self.sender!r}, {self.user!r}, {self.host!r}) {args}>".format(
+			self = self,
+			cls = type(self),
+			args = [self.command] + list(self.params)
+		)
 
+def nick(nickname, hopcount=None, **kwargs):
+	extra = () if hopcount is None else (hopcount,)
+	return Message('NICK', nickname, *extra, **kwargs)
 
-class Nick(Command):
+def user(username, hostname, servername, realname, **kwargs):
+	return Message('USER', username, hostname, servername, realname, **kwargs)
 
-    def __init__(self, nickname, hopcount=None, prefix=None):
-        params = [nickname]
-        if hopcount is not None:
-            if not isinstance(hopcount, int):
-                raise ValueError("hopcount must be int")
-            params.append(str(hopcount))
-        super(Nick, self).__init__(params, prefix=prefix)
+def quit(msg=None, **kwargs):
+	params = () if msg is None else (msg,)
+	return Message('QUIT', *params, **kwargs)
 
+def join(*channels, **kwargs):
+	"""Channel specs can either be a name like "#foo" or a tuple of (name, key).
+	If name does not start with "#" or "&", a "#" is automatically prepended."""
+	nokeys = set()
+	keys = {}
+	for channel in channels:
+		if isinstance(channel, basestring):
+			nokeys.add(channel)
+		else:
+			name, key = channel
+			keys[name] = key
 
-class User(Command):
-    def __init__(self, username, hostname, servername, realname, prefix=None):
-        params = [username, hostname, servername, realname]
-        super(User, self).__init__(params, prefix=prefix)
+	names, keys = zip(*keys.items())
+	names += list(nokeys)
+	names = map(normalize_channel, names)
 
+	if not names:
+		raise TypeError('No channels given')
 
-class Quit(Command):
-    def __init__(self, msg, prefix=None):
-        params = []
-        if msg is not None:
-            params.append(msg)
-        super(Quit, self).__init__(params, prefix=prefix)
+	names = ','.join(names)
+	keys = ','.join(keys)
+	params = (names, keys) if keys else (names,)
+	return Message('JOIN', *params, **kwargs)
 
+def part(*channels, **kwargs):
+	channels = map(normalize_channel, channels)
+	return Message('PART', ','.join(channels), **kwargs)
 
-class Join(Command):
-    def __init__(self, channels, prefix=None):
-        params = []
-        if isinstance(channels, basestring):
-            if channels.startswith('#'):
-                params = channels
-            else:
-                params = "#" + channels
-        else:
-            chans = []
-            keys = []
-            for channel, key in channels:
-                if key is None:
-                    chans.append('#' + channel)
-                else:
-                    chans.append('&' + channel)
-                    keys.append(key)
-            params = [",".join(chans), ",".join(keys)]
+def mode(target, flags, arg=None, remove=False, **kwargs):
+	"""Change mode flags for target (user or chan).
+	flags should be a string or list of chars, eg. 'im' or 'o'
+	The default is to add flags - change this with remove=True.
+	arg is an optional extra arg required by some flags.
+	eg. "#foo +o foo_guy" would be written as mode("#foo", "o", "foo_guy")
+	while "foo_guy -o" would be written as mode("foo_guy", "o", remove=True)
+	"""
+	extra = () if arg is None else (arg,)
+	flags = ('-' if remove else '+') + flags
+	return Message('MODE', target, flags, *extra, **kwargs)
 
-        if not params:
-            raise ValueError('invalid channel: %r' % channels)
-        super(Join, self).__init__(params, prefix=prefix)
+def privmsg(target, msg, **kwargs):
+	"""Target can be user, channel or list of users"""
+	if not isinstance(target, basestring):
+		target = ','.join(target)
+	return Message('PRIVMSG', target, msg, **kwargs)
 
+def topic(channel, msg, **kwargs):
+	return Message('TOPIC', normalize_channel(channel), msg, **kwargs)
 
-class PrivMsg(Command):
-    def __init__(self, to, msg, prefix=None):
-        super(PrivMsg, self).__init__([to, msg], prefix=prefix)
+def names(*channels, **kwargs):
+	channels = map(normalize_channels, channels)
+	params = ','.join(channels) if channels else ()
+	return Message('NAMES', *params, **kwargs)
 
+def list(*channels, **kwargs):
+	channels = map(normalize_channels, channels)
+	params = ','.join(channels) if channels else ()
+	return Message('LIST', *params, **kwargs)
+
+def invite(nick, channel, **kwargs):
+	channel = normalize_channel(channel)
+	return Message('INVITE', nick, channel, **kwargs)
+
+def kick(channel, nick, msg=None, **kwargs):
+	channel = normalize_channel(channel)
+	extra = () if msg is None else (msg,)
+	return Message('KICK', channel, nick, *extra, **kwargs)
+
+def version(server=None, **kwargs):
+	params = () if server is None else (server,)
+	return Message('VERSION', *params, **kwargs)
 
 class Pong(Command):
     def __init__(self, data=None, prefix=None):
