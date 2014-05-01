@@ -93,9 +93,10 @@ class Message(object):
 			args = [self.command] + list(self.params)
 		)
 
-def nick(nickname, hopcount=None, **kwargs):
-	extra = () if hopcount is None else (hopcount,)
-	return Message('NICK', nickname, *extra, **kwargs)
+# Command helpers for some common commands
+
+def nick(nickname, **kwargs):
+	return Message('NICK', nickname, **kwargs)
 
 def user(username, hostname, servername, realname, **kwargs):
 	return Message('USER', username, hostname, servername, realname, **kwargs)
@@ -106,7 +107,8 @@ def quit(msg=None, **kwargs):
 
 def join(*channels, **kwargs):
 	"""Channel specs can either be a name like "#foo" or a tuple of (name, key).
-	If name does not start with "#" or "&", a "#" is automatically prepended."""
+	Like most other functions here, if name does not start with "#" or "&",
+	a "#" is automatically prepended."""
 	nokeys = set()
 	keys = {}
 	for channel in channels:
@@ -145,43 +147,38 @@ def mode(target, flags, arg=None, remove=False, **kwargs):
 	return Message('MODE', target, flags, *extra, **kwargs)
 
 def privmsg(target, msg, **kwargs):
-	"""Target can be user, channel or list of users"""
+	"""Target can be user, channel or list of users
+	NOTE: Because we can't distinguish between a nick and a channel name,
+	      this function will NOT automatically prepend a '#' to channels.
+	"""
 	if not isinstance(target, basestring):
 		target = ','.join(target)
 	return Message('PRIVMSG', target, msg, **kwargs)
-
-def topic(channel, msg, **kwargs):
-	return Message('TOPIC', normalize_channel(channel), msg, **kwargs)
-
-def names(*channels, **kwargs):
-	channels = map(normalize_channels, channels)
-	params = ','.join(channels) if channels else ()
-	return Message('NAMES', *params, **kwargs)
 
 def list(*channels, **kwargs):
 	channels = map(normalize_channels, channels)
 	params = ','.join(channels) if channels else ()
 	return Message('LIST', *params, **kwargs)
 
-def invite(nick, channel, **kwargs):
-	channel = normalize_channel(channel)
-	return Message('INVITE', nick, channel, **kwargs)
-
 def kick(channel, nick, msg=None, **kwargs):
 	channel = normalize_channel(channel)
 	extra = () if msg is None else (msg,)
 	return Message('KICK', channel, nick, *extra, **kwargs)
 
-def version(server=None, **kwargs):
-	params = () if server is None else (server,)
-	return Message('VERSION', *params, **kwargs)
+def whois(*nicks, **kwargs):
+	"""Takes a server kwarg that I cannot expose explicitly due to python2 limitations"""
+	nicks = ','.join(nicks)
+	if not nicks:
+		raise TypeError("No nicks given")
+	server = kwargs.pop(server, None)
+	params = (server, nicks) if server is not None else (nicks,)
+	return Message('WHOIS', *params, **kwargs)
 
-class Pong(Command):
-    def __init__(self, data=None, prefix=None):
-        params = []
-        if data:
-            params.append(data)
-        super(Pong, self).__init__(params, prefix=prefix)
+def ping(payload, **kwargs):
+	return Message('PING', server, **kwargs)
+
+def pong(payload, **kwargs):
+	return Message('PONG', payload, **kwargs)
 
 
 X_DELIM = '\x01'
