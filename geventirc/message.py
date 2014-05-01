@@ -67,15 +67,23 @@ class Message(object):
 		return cls(command, *params, sender=sender, user=user, host=host)
 
     def __init__(self, command, *params, **kwargs):
-		"""Takes kwargs sender, user, host"""
+		"""Takes optional kwargs sender, user, host and ctcp
+		sender, user, host are the args that form the message prefix.
+		ctcp is a boolean flag that this is a CTCP message.
+		CTCP messages are always PRIVMSGs, and command, params are instead taken as a CTCP command
+		and params.
+		"""
 		# due to limitations of python2, we take generic kwargs and pull out our desired args manually
         self.command = command
         self.params = params
 		self.sender = kwargs.pop('sender', None)
 		self.user = kwargs.pop('user', None)
 		self.host = kwargs.pop('host', None)
+		self.ctcp = kwargs.pop('ctcp', False)
 		if kwargs:
 			raise TypeError("Unexpected kwargs: {}".format(kwargs))
+		if self.ctcp:
+			# TODO
 
     def encode(self):
         return encode(self.sender, self.user, self.host, self.command, self.params) + '\r\n'
