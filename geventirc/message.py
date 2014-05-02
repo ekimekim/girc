@@ -134,14 +134,32 @@ class Command(Message):
 class Nick(Command):
 	def from_args(self, nickname):
 		return nickname,
+	@property
+	def nickname(self):
+		return self.params[0]
 
 class User(Command):
 	def from_args(self, username, hostname, servername, realname):
 		return username, hostname, servername, realname
+	@property
+	def username(self):
+		return self.params[0]
+	@property
+	def hostname(self):
+		return self.params[1]
+	@property
+	def servername(self):
+		return self.params[2]
+	@property
+	def realname(self):
+		return self.params[3]
 
 class Quit(Command):
 	def from_args(self, msg=None):
 		return () if msg is None else (msg,)
+	@property
+	def message(self):
+		return params[0] if params else None
 
 class Join(Command):
 	def from_args(self, *channels):
@@ -167,11 +185,23 @@ class Join(Command):
 		names = ','.join(names)
 		keys = ','.join(keys)
 		return (names, keys) if keys else (names,)
+	@property
+	def channels(self):
+		return self.params[0].split(',')
+	@property
+	def keyed_channels(self):
+		if len(self.params) == 1: return {}
+		names = self.params[0].split(',')
+		keys = self.params[1].split(',')
+		return dict(zip(names, keys))
 
 class Part(Command):
 	def from_args(self, *channels):
 		channels = map(normalize_channel, channels)
 		return ','.join(channels),
+	@property
+	def channels(self):
+		return self.params[0].split(',')
 
 class Mode(Command):
 	def from_args(self, target, flags, arg=None, remove=False):
@@ -183,13 +213,23 @@ class Mode(Command):
 		while "foo_guy -o" would be written as mode("foo_guy", "o", remove=True)
 		"""
 		flags = ('-' if remove else '+') + flags
-		return (target, flags) if arg is None else (target, flags, extra)
+		return (target, flags) if arg is None else (target, flags, arg)
+	@property
+	def target(self):
+		return self.params[0]
+	@property
+	def flags(self):
+		return self.params[1].lstrip('+-')
+	@property
+	def arg(self):
+		return self.params[2] if len(self.params) > 2 else None
+	@property
+	def remove(self):
+		return self.params[1][0] == '-'
 
 class Privmsg(Command):
 	def from_args(self, target, msg):
 		"""Target can be user, channel or list of users
-		NOTE: Because we can't distinguish between a nick and a channel name,
-			  this function will NOT automatically prepend a '#' to channels.
 		msg can alternately be a tuple (ctcp_command, ctcp_arg)
 		"""
 		if not isinstance(target, basestring):
@@ -199,11 +239,19 @@ class Privmsg(Command):
 		return target, msg
 
 	@property
+	def target(self):
+		return self.params[0].split(',')
+
+	@property
+	def message(self):
+		return self.params[1]
+
+	@property
 	def ctcp(self):
 		"""Returns (ctcp_command, ctcp_arg) or None"""
-		if not (self.msg.startswith('\x01') and self.msg.endswith('\x01')):
+		if not (self.message.startswith('\x01') and self.message.endswith('\x01')):
 			return
-		return self.msg.strip('\x01').split(' ', 1)
+		return self.message.strip('\x01').split(' ', 1)
 
 	@classmethod
 	def me(cls, target, message):
@@ -215,11 +263,23 @@ class List(Command):
 		channels = map(normalize_channels, channels)
 		if not channels: return
 		return ','.join(channels),
+	@property
+	def channels(self):
+		return self.params[0].split(',') if self.params else None
 
 class Kick(Command):
 	def from_args(self, channel, nick, msg=None):
 		channel = normalize_channel(channel)
 		return (channel, nick) if msg is None else (channel, nick, msg)
+	@property
+	def channel(self):
+		return self.params[0]
+	@property
+	def nick(self):
+		return self.params[1]
+	@property
+	def message(self):
+		return self.params[2] if len(self.params) > 2 else None
 
 class Whois(Command):
 	def from_args(self, *nicks, **kwargs):
@@ -231,14 +291,25 @@ class Whois(Command):
 		if kwargs:
 			raise TypeError("Unexpected kwargs: {}".format(kawrgs))
 		return (nicks,) if server is None else (server, nicks)
+	@property
+	def nicks(self):
+		return self.params[-1].split(',')
+	@property
+	def server(self):
+		return self.params[0] if len(self.params) > 1 else None
 
 class Ping(Command):
 	def from_args(self, payload=None):
 		if payload is None:
 			payload = str(random.randrange(1, 2**31)) # range here is kinda arbitrary, this seems safe
 		return payload,
+	@property
+	def payload(self):
+		return params[0]
 
 class Pong(Command):
 	def from_args(self, payload):
 		return payload,
-
+	@property
+	def payload(self):
+		return params[0]
