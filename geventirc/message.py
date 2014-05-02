@@ -1,4 +1,4 @@
-from geventirc.common import classproperty
+from geventirc.common import classproperty, subclasses
 
 
 class InvalidMessage(Exception):
@@ -120,7 +120,7 @@ class Command(Message):
 			params = self.from_args(*args, **kwargs)
 		super(Command, self).__init__(self.command, *params, **extracted)
 
-	def from_args(self, *args, **kwargs):
+	def from_args(self, self, *args, **kwargs):
 		"""Subclasses should provide this method, which should take the args you want users
 		to pass into the constructor, and return a list of params.
 		"""
@@ -132,19 +132,19 @@ class Command(Message):
 
 
 class Nick(Command):
-	def from_args(nickname):
+	def from_args(self, nickname):
 		return nickname,
 
 class User(Command):
-	def from_args(username, hostname, servername, realname):
+	def from_args(self, username, hostname, servername, realname):
 		return username, hostname, servername, realname
 
 class Quit(Command):
-	def from_args(msg=None):
+	def from_args(self, msg=None):
 		return () if msg is None else (msg,)
 
 class Join(Command):
-	def from_args(*channels):
+	def from_args(self, *channels):
 		"""Channel specs can either be a name like "#foo" or a tuple of (name, key).
 		Like most other functions here, if name does not start with "#" or "&",
 		a "#" is automatically prepended."""
@@ -169,12 +169,12 @@ class Join(Command):
 		return (names, keys) if keys else (names,)
 
 class Part(Command):
-	def from_args(*channels):
+	def from_args(self, *channels):
 		channels = map(normalize_channel, channels)
 		return ','.join(channels),
 
 class Mode(Command):
-	def from_args(target, flags, arg=None, remove=False):
+	def from_args(self, target, flags, arg=None, remove=False):
 		"""Change mode flags for target (user or chan).
 		flags should be a string or list of chars, eg. 'im' or 'o'
 		The default is to add flags - change this with remove=True.
@@ -186,7 +186,19 @@ class Mode(Command):
 		return (target, flags) if arg is None else (target, flags, extra)
 
 class Privmsg(Command):
-	def from_args(target, msg):
+	# We check args in __new__ so we can return a CTCPMessage if needed
+	def __new__(cls, target=None, msg=None, params=None, **kwargs):
+		if params is not None:
+			if len(params) != 2:
+				raise TypeError("PRIVMSG only takes two params")
+			target, msg = params
+		if msg is None:
+			raise TypeError("Arg msg is required")
+		if msg.startswith('\x01') and msg.endswith('\x01'):
+			return CTCPMessage(target, msg=msg, **kwargs)
+		return super(Privmsg, self).__new__(target, message, **kwargs)
+
+	def from_args(self, target, msg):
 		"""Target can be user, channel or list of users
 		NOTE: Because we can't distinguish between a nick and a channel name,
 			  this function will NOT automatically prepend a '#' to channels.
@@ -196,18 +208,18 @@ class Privmsg(Command):
 		return target, msg
 
 class List(Command):
-	def from_args(*channels):
+	def from_args(self, *channels):
 		channels = map(normalize_channels, channels)
 		if not channels: return
 		return ','.join(channels),
 
 class Kick(Command):
-	def from_args(channel, nick, msg=None):
+	def from_args(self, channel, nick, msg=None):
 		channel = normalize_channel(channel)
 		return (channel, nick) if msg is None else (channel, nick, msg)
 
 class Whois(Command):
-	def from_args(*nicks, **kwargs):
+	def from_args(self, *nicks, **kwargs):
 		"""Takes a server kwarg that I cannot expose explicitly due to python2 limitations"""
 		nicks = ','.join(nicks)
 		if not nicks:
@@ -218,14 +230,25 @@ class Whois(Command):
 		return (nicks,) if server is None else (server, nicks)
 
 class Ping(Command):
-	def from_args(payload=None):
+	def from_args(self, payload=None):
 		if payload is None:
 			payload = str(random.randrange(1, 2**31)) # range here is kinda arbitrary, this seems safe
 		return payload,
 
 class Pong(Command):
-	def from_args(payload):
+	def from_args(self, payload):
 		return payload,
+
+
+class CTCPMessage(Privmsg):
+	def __new__(self, target, ctcp_command=None, ctcp_arg=None, msg=None, **kwargs):
+		if msg is not None:
+			
+
+	def __init__(self, *args, **kwargs):
+		super(CTCPMessage, self).__init__(*args, **kwargs)
+		
+
 
 
 X_DELIM = '\x01'
