@@ -48,21 +48,6 @@ def decode(line):
 
 	return cls(command, *params, sender=sender, user=user, host=host)
 
-def encode(sender, user, host, command, params):
-	"""Note: does not try to validate valid chars for command, params, etc"""
-	parts = [command]
-	if sender or user or host:
-		prefix = ':{}'.format(sender or '')
-		if user:
-			prefix += '!{}'.format(user)
-		if host:
-			prefix += '@{}'.format(host)
-		parts = [prefix] + parts
-	if params:
-		last_param = params.pop()
-		parts += params + [':{}'.format(last_param)]
-	return ' '.join(map(str, parts))
-
 
 class Message(object):
 
@@ -146,90 +131,101 @@ class Command(Message):
 		return cls.__name__.upper()
 
 
-def nick(nickname, **kwargs):
-	return Message('NICK', nickname, **kwargs)
+class Nick(Command):
+	def from_args(nickname):
+		return nickname,
 
-def user(username, hostname, servername, realname, **kwargs):
-	return Message('USER', username, hostname, servername, realname, **kwargs)
+class User(Command):
+	def from_args(username, hostname, servername, realname):
+		return username, hostname, servername, realname
 
-def quit(msg=None, **kwargs):
-	params = () if msg is None else (msg,)
-	return Message('QUIT', *params, **kwargs)
+class Quit(Command):
+	def from_args(msg=None):
+		return () if msg is None else (msg,)
 
-def join(*channels, **kwargs):
-	"""Channel specs can either be a name like "#foo" or a tuple of (name, key).
-	Like most other functions here, if name does not start with "#" or "&",
-	a "#" is automatically prepended."""
-	nokeys = set()
-	keys = {}
-	for channel in channels:
-		if isinstance(channel, basestring):
-			nokeys.add(channel)
-		else:
-			name, key = channel
-			keys[name] = key
+class Join(Command):
+	def from_args(*channels):
+		"""Channel specs can either be a name like "#foo" or a tuple of (name, key).
+		Like most other functions here, if name does not start with "#" or "&",
+		a "#" is automatically prepended."""
+		nokeys = set()
+		keys = {}
+		for channel in channels:
+			if isinstance(channel, basestring):
+				nokeys.add(channel)
+			else:
+				name, key = channel
+				keys[name] = key
 
-	names, keys = zip(*keys.items())
-	names += list(nokeys)
-	names = map(normalize_channel, names)
+		names, keys = zip(*keys.items())
+		names += list(nokeys)
+		names = map(normalize_channel, names)
 
-	if not names:
-		raise TypeError('No channels given')
+		if not names:
+			raise TypeError('No channels given')
 
-	names = ','.join(names)
-	keys = ','.join(keys)
-	params = (names, keys) if keys else (names,)
-	return Message('JOIN', *params, **kwargs)
+		names = ','.join(names)
+		keys = ','.join(keys)
+		return (names, keys) if keys else (names,)
 
-def part(*channels, **kwargs):
-	channels = map(normalize_channel, channels)
-	return Message('PART', ','.join(channels), **kwargs)
+class Part(Command):
+	def from_args(*channels):
+		channels = map(normalize_channel, channels)
+		return ','.join(channels),
 
-def mode(target, flags, arg=None, remove=False, **kwargs):
-	"""Change mode flags for target (user or chan).
-	flags should be a string or list of chars, eg. 'im' or 'o'
-	The default is to add flags - change this with remove=True.
-	arg is an optional extra arg required by some flags.
-	eg. "#foo +o foo_guy" would be written as mode("#foo", "o", "foo_guy")
-	while "foo_guy -o" would be written as mode("foo_guy", "o", remove=True)
-	"""
-	extra = () if arg is None else (arg,)
-	flags = ('-' if remove else '+') + flags
-	return Message('MODE', target, flags, *extra, **kwargs)
+class Mode(Command):
+	def from_args(target, flags, arg=None, remove=False):
+		"""Change mode flags for target (user or chan).
+		flags should be a string or list of chars, eg. 'im' or 'o'
+		The default is to add flags - change this with remove=True.
+		arg is an optional extra arg required by some flags.
+		eg. "#foo +o foo_guy" would be written as mode("#foo", "o", "foo_guy")
+		while "foo_guy -o" would be written as mode("foo_guy", "o", remove=True)
+		"""
+		flags = ('-' if remove else '+') + flags
+		return (target, flags) if arg is None else (target, flags, extra)
 
-def privmsg(target, msg, **kwargs):
-	"""Target can be user, channel or list of users
-	NOTE: Because we can't distinguish between a nick and a channel name,
-	      this function will NOT automatically prepend a '#' to channels.
-	"""
-	if not isinstance(target, basestring):
-		target = ','.join(target)
-	return Message('PRIVMSG', target, msg, **kwargs)
+class Privmsg(Command):
+	def from_args(target, msg):
+		"""Target can be user, channel or list of users
+		NOTE: Because we can't distinguish between a nick and a channel name,
+			  this function will NOT automatically prepend a '#' to channels.
+		"""
+		if not isinstance(target, basestring):
+			target = ','.join(target)
+		return target, msg
 
-def list(*channels, **kwargs):
-	channels = map(normalize_channels, channels)
-	params = ','.join(channels) if channels else ()
-	return Message('LIST', *params, **kwargs)
+class List(Command):
+	def from_args(*channels):
+		channels = map(normalize_channels, channels)
+		if not channels: return
+		return ','.join(channels),
 
-def kick(channel, nick, msg=None, **kwargs):
-	channel = normalize_channel(channel)
-	extra = () if msg is None else (msg,)
-	return Message('KICK', channel, nick, *extra, **kwargs)
+class Kick(Command):
+	def from_args(channel, nick, msg=None):
+		channel = normalize_channel(channel)
+		return (channel, nick) if msg is None else (channel, nick, msg)
 
-def whois(*nicks, **kwargs):
-	"""Takes a server kwarg that I cannot expose explicitly due to python2 limitations"""
-	nicks = ','.join(nicks)
-	if not nicks:
-		raise TypeError("No nicks given")
-	server = kwargs.pop(server, None)
-	params = (server, nicks) if server is not None else (nicks,)
-	return Message('WHOIS', *params, **kwargs)
+class Whois(Command):
+	def from_args(*nicks, **kwargs):
+		"""Takes a server kwarg that I cannot expose explicitly due to python2 limitations"""
+		nicks = ','.join(nicks)
+		if not nicks:
+			raise TypeError("No nicks given")
+		server = kwargs.pop(server, None)
+		if kwargs:
+			raise TypeError("Unexpected kwargs: {}".format(kawrgs))
+		return (nicks,) if server is None else (server, nicks)
 
-def ping(payload, **kwargs):
-	return Message('PING', server, **kwargs)
+class Ping(Command):
+	def from_args(payload=None):
+		if payload is None:
+			payload = str(random.randrange(1, 2**31)) # range here is kinda arbitrary, this seems safe
+		return payload,
 
-def pong(payload, **kwargs):
-	return Message('PONG', payload, **kwargs)
+class Pong(Command):
+	def from_args(payload):
+		return payload,
 
 
 X_DELIM = '\x01'
