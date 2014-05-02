@@ -186,26 +186,29 @@ class Mode(Command):
 		return (target, flags) if arg is None else (target, flags, extra)
 
 class Privmsg(Command):
-	# We check args in __new__ so we can return a CTCPMessage if needed
-	def __new__(cls, target=None, msg=None, params=None, **kwargs):
-		if params is not None:
-			if len(params) != 2:
-				raise TypeError("PRIVMSG only takes two params")
-			target, msg = params
-		if msg is None:
-			raise TypeError("Arg msg is required")
-		if msg.startswith('\x01') and msg.endswith('\x01'):
-			return CTCPMessage(target, msg=msg, **kwargs)
-		return super(Privmsg, self).__new__(target, message, **kwargs)
-
 	def from_args(self, target, msg):
 		"""Target can be user, channel or list of users
 		NOTE: Because we can't distinguish between a nick and a channel name,
 			  this function will NOT automatically prepend a '#' to channels.
+		msg can alternately be a tuple (ctcp_command, ctcp_arg)
 		"""
 		if not isinstance(target, basestring):
 			target = ','.join(target)
+		if not isinstance(msg, basestring):
+			msg = '\x01{} {}\x01'.format(*msg)
 		return target, msg
+
+	@property
+	def ctcp(self):
+		"""Returns (ctcp_command, ctcp_arg) or None"""
+		if not (self.msg.startswith('\x01') and self.msg.endswith('\x01')):
+			return
+		return self.msg.strip('\x01').split(' ', 1)
+
+	@classmethod
+	def me(cls, target, message):
+		"""Helper constructor for /me messages"""
+		return cls(target, ('ACTION', message))
 
 class List(Command):
 	def from_args(self, *channels):
@@ -239,134 +242,3 @@ class Pong(Command):
 	def from_args(self, payload):
 		return payload,
 
-
-class CTCPMessage(Privmsg):
-	def __new__(self, target, ctcp_command=None, ctcp_arg=None, msg=None, **kwargs):
-		if msg is not None:
-			
-
-	def __init__(self, *args, **kwargs):
-		super(CTCPMessage, self).__init__(*args, **kwargs)
-		
-
-
-
-X_DELIM = '\x01'
-X_QUOTE = '\x86'
-M_QUOTE = '\x10'
-
-_low_level_quote_table = {
-    NUL: M_QUOTE + '0',
-    NL: M_QUOTE + 'n',
-    CR: M_QUOTE + 'r',
-    M_QUOTE: M_QUOTE * 2
-}
-
-_ctcp_quote_table = {
-    X_DELIM: X_QUOTE + 'a',
-    X_QUOTE: X_QUOTE * 2
-}
-
-_low_level_dequote_table = {v: k for k, v in _low_level_quote_table.items()}
-_ctcp_dequote_table = {v: k for k, v in _ctcp_quote_table.items()}
-
-# TODO clean _quote and _dequote
-def _quote(string, table):
-    cursor = 0
-    buf = ''
-    for pos, char in enumerate(string):
-        if pos is 0:
-            continue
-        if char in table:
-            buf += string[cursor:pos] + table[char]
-            cursor = pos + 1
-    buf += string[cursor:]
-    return buf
-
-def _dequote(string, table):
-    cursor = 0
-    buf = ''
-    last_char = ''
-    for pos, char in enumerate(string):
-        if pos is 0:
-            last_char = char
-            continue
-        if last_char + char in table:
-            buf += string[cursor:pos] + table[last_char + char]
-            cursor = pos + 1
-        last_char = char
-
-    buf += string[cursor:]
-    return buf
-
-def low_level_quote(string):
-    return _quote(string, _low_level_quote_table)
-
-def low_level_dequote(string):
-    return _dequote(string, _low_level_dequote_table)
-
-def ctcp_quote(string):
-    return _quote(string, _ctcp_quote_table)
-
-def ctcp_dequote(string):
-    return _dequote(string, _ctcp_dequote_table)
-
-
-class CTCPMessage(Message):
-
-    def __init__(self, command, params, ctcp_params, prefix=None):
-        super(CTCPMessage, self).__init__(command, params, prefix=prefix)
-        self.ctcp_params = ctcp_params
-
-    @classmethod
-    def decode(cls, data):
-        prefix, command, params = irc_split(data)
-        extended_messages = []
-        normal_messages = []
-        if params:
-            params = DELIM.join(params)
-            decoded = low_level_dequote(params)
-            messages = decoded.split(X_DELIM)
-            messages.reverse()
-
-            odd = False
-            extended_messages = []
-            normal_messages = []
-
-            while messages:
-                message = messages.pop()
-                if odd:
-                    if message:
-                        ctcp_decoded = ctcp_dequote(message)
-                        split = ctcp_decoded.split(DELIM, 1)
-                        tag = split[0]
-                        data = None
-                        if len(split) > 1:
-                            data = split[1]
-                        extended_messages.append((tag, data))
-                else:
-                    if message:
-                        normal_messages += filter(None, message.split(DELIM))
-                odd = not odd
-
-        return cls(command, normal_messages, extended_messages, prefix=prefix)
-
-    def encode(self):
-        ctcp_buf = ''
-        for tag, data in self.ctcp_params:
-            if data:
-                if not isinstance(data, basestring):
-                    data = DELIM.join(map(str, data))
-                m = tag + DELIM + data
-            else:
-                m = str(tag)
-            ctcp_buf += X_DELIM + ctcp_quote(m) + X_DELIM
-
-        return irc_unsplit(
-                self.prefix, self.command, self.params + 
-                [low_level_quote(ctcp_buf)]) + "\r\n"
-
-
-class Me(CTCPMessage):
-    def __init__(self, to, action, prefix=None):
-        super(Me, self).__init__('PRIVMSG', [to], [('ACTION', action)], prefix=prefix)
