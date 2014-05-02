@@ -1,3 +1,4 @@
+from geventirc.common import classproperty
 
 
 class InvalidMessage(Exception):
@@ -20,6 +21,10 @@ def decode(line):
 	user = None
 	host = None
 
+	line = line.strip('\r\n')
+	for c in '\r\n\0':
+		if c in line:
+			raise InvalidMessage(line, "Illegal character {!r}".format(c))
 	words = filter(None, line.split(' '))
 
 	if words[0].startswith(':'):
@@ -32,7 +37,7 @@ def decode(line):
 
 	if not words:
 		raise InvalidMessage(line, "no command given")
-	command = words.pop(0)
+	command = words.pop(0).upper()
 
 	params = []
 	while words:
@@ -41,7 +46,7 @@ def decode(line):
 			break
 		params.append(words.pop(0))
 
-	return sender, user, host, command, params
+	return cls(command, *params, sender=sender, user=user, host=host)
 
 def encode(sender, user, host, command, params):
 	"""Note: does not try to validate valid chars for command, params, etc"""
@@ -61,17 +66,17 @@ def encode(sender, user, host, command, params):
 
 class Message(object):
 
-    @classmethod
-    def decode(cls, line):
-		sender, user, host, command, params = decode(line.strip())
-		return cls(command, *params, sender=sender, user=user, host=host)
+	def __new__(cls, command, *params, **kwargs):
+		for subcls in subclasses(Command):
+			if subcls.command == command:
+				return subcls(params=params, **kwargs)
+		return object.__new__(command, *params, **kwargs)
 
     def __init__(self, command, *params, **kwargs):
 		"""Takes optional kwargs sender, user, host and ctcp
 		sender, user, host are the args that form the message prefix.
-		ctcp is a boolean flag that this is a CTCP message.
-		CTCP messages are always PRIVMSGs, and command, params are instead taken as a CTCP command
-		and params.
+		Note that the constructor will automatically return the appropriate Message subclass
+		if the command is recognised.
 		"""
 		# due to limitations of python2, we take generic kwargs and pull out our desired args manually
         self.command = command
@@ -79,14 +84,23 @@ class Message(object):
 		self.sender = kwargs.pop('sender', None)
 		self.user = kwargs.pop('user', None)
 		self.host = kwargs.pop('host', None)
-		self.ctcp = kwargs.pop('ctcp', False)
 		if kwargs:
 			raise TypeError("Unexpected kwargs: {}".format(kwargs))
-		if self.ctcp:
-			# TODO
 
     def encode(self):
-        return encode(self.sender, self.user, self.host, self.command, self.params) + '\r\n'
+		parts = [self.command]
+		if self.sender or self.user or self.host:
+			prefix = ':{}'.format(self.sender or '')
+			if self.user:
+				prefix += '!{}'.format(self.user)
+			if self.host:
+				prefix += '@{}'.format(self.host)
+			parts = [prefix] + parts
+		if self.params:
+			params = list(self.params)
+			last_param = params.pop()
+			parts += params + [':{}'.format(last_param)]
+		return ' '.join(map(str, parts))
 
 	def __eq__(self, other):
 		if not isinstance(other, Message):
@@ -101,7 +115,36 @@ class Message(object):
 			args = [self.command] + list(self.params)
 		)
 
-# Command helpers for some common commands
+class Command(Message):
+	"""Helper subclass that known commands inherit from"""
+	__new__ = object.__new__
+
+	def __init__(self, *args, **kwargs):
+		"""We allow params to be set via command-specific args (see from_args)
+		or directly with params kwarg (this is mainly useful when decoding)"""
+		EXTRACT = {'sender', 'user', 'host', 'params'}
+		extracted = {}
+		for key in EXTRACT:
+			if key in kwargs:
+				extracted[key] = kwargs.pop(key)
+		if 'params' in extracted:
+			params = extracted.pop(params)
+			if args or kwargs:
+				raise TypeError("Recieved params as well as unexpected args and kwargs: {}, {}".format(args, kwargs))
+		else:
+			params = self.from_args(*args, **kwargs)
+		super(Command, self).__init__(self.command, *params, **extracted)
+
+	def from_args(self, *args, **kwargs):
+		"""Subclasses should provide this method, which should take the args you want users
+		to pass into the constructor, and return a list of params.
+		"""
+		raise NotImplementedError
+
+	@classproperty
+	def command(cls):
+		return cls.__name__.upper()
+
 
 def nick(nickname, **kwargs):
 	return Message('NICK', nickname, **kwargs)
