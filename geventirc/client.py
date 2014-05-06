@@ -42,7 +42,7 @@ class Client(object):
         self._recv_queue = gevent.queue.Queue()
         self._send_queue = gevent.queue.Queue()
         self._group = gevent.pool.Group()
-        self._handlers = defaultdict(set)
+        self.message_handlers = defaultdict(set) # maps handler to set of registered match_args
         self.stop_handlers = set()
 
 		if not logger:
@@ -53,48 +53,28 @@ class Client(object):
         else:
             self.stop_handlers.update(stop_handler)
 
-    def add_handler(self, *args):
-        """Add callback to be called upon any of a list of commands being recieved.
+    def add_handler(self, callback=None, **match_args):
+        """Add callback to be called upon a matching message being received.
+		See geventirc.message.match() for match_args.
         Callback should take args (client, message) and may return True to de-register itself.
-        If no commands given, the callback is checked for an attr "commands" instead.
-        If that is also not present (or empty), callback is called for all commands.
-
-		Can be called in one of two ways; either directly:
-			add_handler(callback, cmd, cmd, ...)
-		or as a decorator:
-			@add_handler(cmd, cmd, ...)
-			def callback(client, message):
+		If callback is not given, returns a decorator.
+		ie.
+			def foo(client, message):
 				...
-
-		Commands can be string, int (for numeric replies) or message.Command subclass
+			client.add_handler(foo, **match_args)
+		is identical to
+			@client.add_handler(**match_args)
+			def foo(client, message):
+				...
         """
-		# the tricky part - work out if a callback was given
-		if (args # no args, no callback
-		    and not isinstance(args[0], messages.Command) # if first arg is a Command, no callback
-		    and callable(args[0]) # first arg needs to be callable to be a callback
-		   ):
-			callback = args[0]
-			commands = args[1:]
-		else:
-			callback = None
-			commands = args
-
 		def _add_handler(self, callback):
-			if not commands:
-				commands = getattr(callback, 'commands', [])
-			self.logger.info("Registering handler {} for commands {}".format(callback, commands))
-			if not commands:
-				commands = [None] # None represents "all commands"
-			for command in commands:
-				if isinstance(command, messages.Command):
-					command = command.command
-				if command is not None:
-					command = str(command).upper()
-				self._handlers[command].add(callback)
+			self.logger.info("Registering handler {} with match args {}".format(callback, match_args))
+			self.message_handlers[callback].add(match_args)
+			return callback
 
 		if callback is None:
 			return _add_handler
-		return _add_handler(callback)
+		_add_handler(callback)
 
     def send(self, message, callback=None, block=False):
 		"""Send message. If callback given, call when message sent.
@@ -194,9 +174,9 @@ class Client(object):
             logging.warning("Could not decode message from server: {!r}".format(line), exc_info=True)
             return
 		self.logger.debug("Handling message: {}".format(msg))
-        handlers = self._handlers[None] | self._handlers[msg.command]
-        for handler in handlers:
-            self._group.spawn(self._handler_wrapper, handler, msg)
+        for handler, match_arg_set in self.message_handlers.items():
+			if any(message.match(msg, **match_args) for match_args in match_arg_set):
+	            self._group.spawn(self._handler_wrapper, handler, msg)
 
 	def _handler_wrapper(self, handler, msg):
 		self.logger.debug("Calling handler {} with message: {}".format(handler, msg))
@@ -205,9 +185,7 @@ class Client(object):
 		except Exception:
 			self.logger.exception("Handler {} failed".format(handler))
 		if ret:
-			for handler_set in self._handlers.values():
-				if handler in handler_set:
-					handler_set.remove(handler)
+			self.message_handlers.pop(handler, None)
 
     def stop(self):
         self.stopped = True
@@ -235,7 +213,12 @@ class Client(object):
 		"""Shortcut to send a Quit. See send()"""
         self.send_message(message.Quit(msg))
 
-	def wait_for(self, ):
+	def wait_for(self, **match_args):
 		"""Block until a message matching given args is received.
 		The matching message is returned.
-		The following args control matching:
+		See geventirc.message.match() for match_args"""
+		result = gevent.event.AsyncResult()
+		@self.add_handler(**match_args)
+		def wait_callback(self, msg):
+			result.set(msg)
+		return result.get()

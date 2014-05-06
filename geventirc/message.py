@@ -313,3 +313,67 @@ class Pong(Command):
 	@property
 	def payload(self):
 		return params[0]
+
+
+def match(message, command=None, params=None, **attr_args):
+	"""Return True if message is considered a match according to args:
+		command: A command or list of commands the message must match, or None for any command.
+		         Commands can be a string, int or Command subclass.
+		sender, user, host: A sender, user or host value that message must match.
+		params: A list of values, which must match each param of the message respectively.
+		<other kwarg>: Any further kwargs are interpreted as attrs to lookup in the specific message
+		               object (this only makes sense when command is also used), whose value must match.
+	All args must match for a message to match.
+	If not otherwise specified, the default for an arg is to match all.
+
+	Value matches:
+		Several times above, it is mentioned that a "value must match". The meaning of this
+		depends on the type of the passed in match arg:
+			string: Regex to match the whole message value
+			callable: Function that takes a single arg (the message value) and returns True or False
+			iterable: A list of the above, of which at least one must match.
+
+	Examples:
+		Match any message:
+			match(message)
+		Match a Privmsg that begins with "foobar":
+			match(message, command=Privmsg, message="foobar.*")
+		Match a Nick or Mode message from users "alice" or "bob":
+			match(message, command=[Nick, Mode], sender=["alice", "bob"])
+		Match a Mode message which gives a person Op status:
+			match(message, command='mode', flags=lambda flags: 'o' in flags, remove=False)
+	"""
+	def match_value(match_spec, value):
+		if isinstance(match_spec, basestring) or not iterable(match_spec):
+			match_spec = [match_spec]
+		for match_part in match_spec:
+			if isinstance(match_part, basestring):
+				match_part = re.compile("^({})$".format(match_part))
+			if match_part(value):
+				return True
+		return False
+
+	if command is not None:
+		if isinstance(command, basestring) or not iterable(command):
+			commands = [command]
+		else:
+			commands = command
+		for command in commands:
+			if issubclass(command, Command):
+				command = command.command
+			command = str(command).upper()
+			if command != message.command:
+				return False
+
+	if params is not None:
+		if len(params) != len(message.params):
+			return False
+		for match_spec, value in zip(params, message.params):
+			if not match_value(match_spec, value):
+				return False
+
+	for attr, match_spec in attr_args.items():
+		if not match_value(match_spec, getattr(message, attr)):
+			return False
+
+	return True
