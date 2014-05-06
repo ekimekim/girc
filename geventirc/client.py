@@ -199,7 +199,7 @@ class Client(object):
                 fn(self)
         gevent.spawn(_stop).join()
 
-    def join(self):
+    def wait_for_stop(self):
         """Wait for client to exit"""
         event = gevent.event.Event()
         self.stop_handlers.add(lambda self: event.set())
