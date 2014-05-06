@@ -337,6 +337,7 @@ def match(message, command=None, params=None, **attr_args):
 			string: Regex to match the whole message value
 			callable: Function that takes a single arg (the message value) and returns True or False
 			iterable: A list of the above, of which at least one must match.
+			None: Match anything (useful with the params arg)
 
 	Examples:
 		Match any message:
@@ -347,8 +348,12 @@ def match(message, command=None, params=None, **attr_args):
 			match(message, command=[Nick, Mode], sender=["alice", "bob"])
 		Match a Mode message which gives a person Op status:
 			match(message, command='mode', flags=lambda flags: 'o' in flags, remove=False)
+		Match a RPL_TOPIC (332) where param 2 of 3 is "#mychan":
+			match(message, command=332, params=[None, "#mychan", None])
 	"""
 	def match_value(match_spec, value):
+		if match_spec is None:
+			return True
 		if isinstance(match_spec, basestring) or not iterable(match_spec):
 			match_spec = [match_spec]
 		for match_part in match_spec:
