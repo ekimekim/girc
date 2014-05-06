@@ -5,13 +5,12 @@ from collections import defaultdict
 
 import gevent.queue
 import gevent.pool
+import gevent.event
 from gevent import socket
 
-from geventirc import message
+import message
 
-IRC_PORT = 194
-IRCS_PORT = 994
-
+IRC_PORT = 6667
 
 class Client(object):
     _socket = None

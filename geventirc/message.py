@@ -1,4 +1,4 @@
-from geventirc.common import classproperty, subclasses
+from common import classproperty, subclasses
 
 
 class InvalidMessage(Exception):
