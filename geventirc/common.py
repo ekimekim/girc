@@ -26,3 +26,12 @@ def iterable(obj):
 	except TypeError:
 		return False
 	return True
+
+
+class dotdict(dict):
+	def __getattr__(self, attr):
+		return self[attr]
+	def __setattr__(self, attr, value):
+		self[attr] = value
+	def __hasattr__(self, attr):
+		return attr in self

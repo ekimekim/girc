@@ -100,6 +100,11 @@ class Message(object):
 			args = [self.command] + list(self.params)
 		)
 
+	@property
+	def code(self):
+		"""If command is a numeric code, returns the string representation, otherwise None"""
+		return replycodes.codes.get(self.command, None)
+
 class Command(Message):
 	"""Helper subclass that known commands inherit from"""
 	__new__ = object.__new__
