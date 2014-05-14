@@ -17,6 +17,8 @@ class Client(object):
     started = False
     stopped = False
 
+	server_properties, _server_properties = async_property()
+
     def __init__(self, hostname, nick, port=IRC_PORT, password=None,
                  local_hostname=None, server_name=None, real_name=None,
                  stop_handler=[], logger=None):
@@ -51,6 +53,12 @@ class Client(object):
             self.stop_handlers.add(stop_handler)
         else:
             self.stop_handlers.update(stop_handler)
+
+		@self.add_handler(command=5)
+		def recv_server_properties(client, msg):
+			assert client is self
+			parts = msg.params[1:-1] # first param is my nick, last param is "are supported by this server"
+			self.server_properties = dict(part.split('=', 1) for part in parts)
 
     def add_handler(self, callback=None, **match_args):
         """Add callback to be called upon a matching message being received.
