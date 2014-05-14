@@ -204,13 +204,13 @@ class Client(object):
         self.stop_handlers.add(lambda self: event.set())
         event.wait()
 
-    def msg(self, to, content, callback=None, block=False):
+    def msg(self, to, content, block=False):
 		"""Shortcut to send a Privmsg. See send()"""
-        self.send_message(message.Privmsg(to, content))
+        self.send_message(message.Privmsg(to, content), block=block)
 
-    def quit(self, msg=None, callback=None, block=False):
+    def quit(self, msg=None, block=False):
 		"""Shortcut to send a Quit. See send()"""
-        self.send_message(message.Quit(msg))
+        self.send_message(message.Quit(msg), block=block)
 
 	def wait_for(self, **match_args):
 		"""Block until a message matching given args is received.

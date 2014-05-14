@@ -259,8 +259,8 @@ class Privmsg(Command):
 		return self.message.strip('\x01').split(' ', 1)
 
 	@classmethod
-	def me(cls, target, message):
-		"""Helper constructor for /me messages"""
+	def action(cls, target, message):
+		"""Helper constructor for action messages"""
 		return cls(target, ('ACTION', message))
 
 class List(Command):
