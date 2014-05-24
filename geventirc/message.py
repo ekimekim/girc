@@ -326,6 +326,7 @@ def match(message, command=None, params=None, **attr_args):
 		         Commands can be a string, int or Command subclass.
 		sender, user, host: A sender, user or host value that message must match.
 		params: A list of values, which must match each param of the message respectively.
+		        May instead be a callable which takes the params list and returns True/False.
 		<other kwarg>: Any further kwargs are interpreted as attrs to lookup in the specific message
 		               object (this only makes sense when command is also used), whose value must match.
 	All args must match for a message to match.
@@ -350,6 +351,8 @@ def match(message, command=None, params=None, **attr_args):
 			match(message, command='mode', flags=lambda flags: 'o' in flags, remove=False)
 		Match a RPL_TOPIC (332) where param 2 of 3 is "#mychan":
 			match(message, command=332, params=[None, "#mychan", None])
+		Match a RPL_NAMREPLY (353) where param 1 of any is "#mychan":
+			match(message, command=353, params=lambda params: len(params) > 1 and params[1] == "#mychan")
 	"""
 	def match_value(match_spec, value):
 		if match_spec is None:
@@ -376,11 +379,15 @@ def match(message, command=None, params=None, **attr_args):
 				return False
 
 	if params is not None:
-		if len(params) != len(message.params):
-			return False
-		for match_spec, value in zip(params, message.params):
-			if not match_value(match_spec, value):
+		if callable(params):
+			if not params(message.params):
 				return False
+		else:
+			if len(params) != len(message.params):
+				return False
+			for match_spec, value in zip(params, message.params):
+				if not match_value(match_spec, value):
+					return False
 
 	for attr, match_spec in attr_args.items():
 		if not match_value(match_spec, getattr(message, attr)):
