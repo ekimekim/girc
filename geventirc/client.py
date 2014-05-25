@@ -64,6 +64,8 @@ class Client(object):
         """Add callback to be called upon a matching message being received.
 		See geventirc.message.match() for match_args.
         Callback should take args (client, message) and may return True to de-register itself.
+		If callback is already registered, it will trigger on either the new match_args or the existing ones.
+
 		If callback is not given, returns a decorator.
 		ie.
 			def foo(client, message):
@@ -82,6 +84,11 @@ class Client(object):
 		if callback is None:
 			return _add_handler
 		_add_handler(callback)
+
+	def rm_handler(self, handler):
+		"""Remove the given handler, if it is registered."""
+		if handler in self.message_handlers:
+			del self.message_handlers[handler]
 
     def send(self, message, callback=None, block=False):
 		"""Send message. If callback given, call when message sent.
@@ -192,7 +199,7 @@ class Client(object):
 		except Exception:
 			self.logger.exception("Handler {} failed".format(handler))
 		if ret:
-			self.message_handlers.pop(handler, None)
+			self.rm_handler(handler)
 
     def stop(self):
         self.stopped = True
