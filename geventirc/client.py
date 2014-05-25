@@ -6,9 +6,11 @@ from collections import defaultdict
 import gevent.queue
 import gevent.pool
 import gevent.event
+import gevent.lock
 from gevent import socket
 
 import message
+import replycodes
 
 IRC_PORT = 6667
 
@@ -45,6 +47,7 @@ class Client(object):
         self._group = gevent.pool.Group()
         self.message_handlers = defaultdict(set) # maps handler to set of registered match_args
         self.stop_handlers = set()
+		self.nick_change_lock = gevent.lock.RLock()
 
 		if not logger:
 			self.logger = logging.getLogger(__name__).getChild(type(self).__name__)
@@ -54,12 +57,6 @@ class Client(object):
         else:
             self.stop_handlers.update(stop_handler)
 
-		@self.add_handler(command=5)
-		def recv_server_properties(client, msg):
-			assert client is self
-			parts = msg.params[1:-1] # first param is my nick, last param is "are supported by this server"
-			self.server_properties = dict(part.split('=', 1) for part in parts)
-
 		# init messages
 		if self.password:
 			self.send(message.Pass(self.password))
@@ -68,6 +65,34 @@ class Client(object):
 		                       self.local_hostname,
 		                       self.server_name,
 		                       self.real_name))
+
+		# default handlers
+
+		@self.add_handler(command=5)
+		def recv_server_properties(client, msg):
+			parts = msg.params[1:-1] # first param is my nick, last param is "are supported by this server"
+			self.server_properties = dict(part.split('=', 1) for part in parts)
+
+		@self.add_handler(command=message.Ping)
+		def on_ping(client, msg):
+			client.send(message.Pong(msg.payload))
+
+		@self.add_handler(command=replycodes.errors.NICKNAMEINUSE)
+		def nick_in_use(client, msg):
+			with nick_change_lock:
+				if msg.params[0] != self.nick:
+					# this probably means a race condition, ignore it
+					return
+				self.set_nick(self.increment_nick(self.nick))
+
+		# note here we use a lambda to delay lookup of a mutable variable
+		@self.add_handler(command='NICK', sender=lambda sender: sender == self.nick)
+		def forced_nick_change(client, msg):
+			with nick_change_lock:
+				if sender != self.nick:
+					# this probably means a race condition, ignore it
+					return
+				self.nick = msg.nickname
 
     def add_handler(self, callback=None, **match_args):
         """Add callback to be called upon a matching message being received.
@@ -133,6 +158,13 @@ class Client(object):
 			return
 		self._group.spawn(self._send_loop)
 		self._group.spawn(self._recv_loop)
+
+	def set_nick(self, nick):
+		"""Change the nick safely. Note this function will block until the change is sent and
+		self.nick is updated. Note there's no way of knowing when the server will stop using the old nick"""
+		with nick_change_lock:
+			self.send(message.Nick(nick), block=True)
+			self.nick = nick
 
     def _recv_loop(self):
         partial = ''
