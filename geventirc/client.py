@@ -60,6 +60,15 @@ class Client(object):
 			parts = msg.params[1:-1] # first param is my nick, last param is "are supported by this server"
 			self.server_properties = dict(part.split('=', 1) for part in parts)
 
+		# init messages
+		if self.password:
+			self.send(message.Pass(self.password))
+		self.send(message.Nick(self.nick))
+		self.send(message.User(self.nick,
+		                       self.local_hostname,
+		                       self.server_name,
+		                       self.real_name))
+
     def add_handler(self, callback=None, **match_args):
         """Add callback to be called upon a matching message being received.
 		See geventirc.message.match() for match_args.
@@ -124,13 +133,6 @@ class Client(object):
 			return
 		self._group.spawn(self._send_loop)
 		self._group.spawn(self._recv_loop)
-		if self.password:
-			self.send(message.Pass(self.password))
-		self.send(message.Nick(self.nick))
-		self.send(message.User(self.nick,
-		                       self.local_hostname,
-		                       self.server_name,
-		                       self.real_name))
 
     def _recv_loop(self):
         partial = ''
