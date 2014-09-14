@@ -209,28 +209,58 @@ class Part(Command):
 		return self.params[0].split(',')
 
 class Mode(Command):
-	def from_args(self, target, flags, arg=None, remove=False):
+	def from_args(self, target, *modes):
 		"""Change mode flags for target (user or chan).
-		flags should be a string or list of chars, eg. 'im' or 'o'
-		The default is to add flags - change this with remove=True.
-		arg is an optional extra arg required by some flags.
-		eg. "#foo +o foo_guy" would be written as mode("#foo", "o", "foo_guy")
-		while "foo_guy -o" would be written as mode("foo_guy", "o", remove=True)
+		Each mode should be in one of these forms:
+			flag: A simple string flag. Sets that flag.
+			-flag: Unsets the flag.
+			(flag, arg): Sets flag with arg
+			(-flag, arg): Unsets flag with arg
+			(flag, arg, adding): Sets or unsets flag with arg depending on if adding is True
 		"""
-		flags = ('-' if remove else '+') + flags
-		return (target, flags) if arg is None else (target, flags, arg)
+		currently_adding = True
+		args = []
+		modestr = ''
+		for modespec in modes:
+			if isinstance(modespec, basestring):
+				modespec = modespec, None
+			if len(mode) == 2:
+				mode, arg = modespec
+				if mode.startswith('-'):
+					mode = mode[1:]
+					adding = False
+				else:
+					adding = True
+			else:
+				mode, arg, adding = modespec
+			if currently_adding != adding:
+				modestr += '+' if adding else '-'
+				currently_adding = adding
+			modestr += mode
+			if arg is not None:
+				args.append(arg)
+		params = target, modestr
+		if args:
+			params += args,
+		return params
 	@property
 	def target(self):
 		return self.params[0]
 	@property
-	def flags(self):
-		return self.params[1].lstrip('+-')
-	@property
-	def arg(self):
-		return self.params[2] if len(self.params) > 2 else None
-	@property
-	def remove(self):
-		return self.params[1][0] == '-'
+	def modes(self):
+		"""List of (mode, arg, adding) for modes being changed. arg is None if no arg."""
+		currently_adding = True
+		target, modestr, args = self.params
+		result = []
+		for c in modestr:
+			if c in '+-':
+				currently_adding = (c == '+')
+				continue
+			# TODO needs support info
+			# we can attempt to parse without support info, but this is only unambiguous if
+			# there are the same number of modes as args
+			# we may want to treat unknown modes as no-arg modes
+
 
 class Privmsg(Command):
 	def from_args(self, target, msg):
@@ -348,7 +378,7 @@ def match(message, command=None, params=None, **attr_args):
 		Match a Nick or Mode message from users "alice" or "bob":
 			match(message, command=[Nick, Mode], sender=["alice", "bob"])
 		Match a Mode message which gives a person Op status:
-			match(message, command='mode', flags=lambda flags: 'o' in flags, remove=False)
+			match(message, command='mode', modes=lambda modes: any(mode == 'o' and adding for mode, arg, adding in modes), remove=False)
 		Match a RPL_TOPIC (332) where param 2 of 3 is "#mychan":
 			match(message, command=332, params=[None, "#mychan", None])
 		Match a RPL_NAMREPLY (353) where param 1 of any is "#mychan":
