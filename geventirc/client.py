@@ -11,6 +11,7 @@ from gevent import socket
 
 import message
 import replycodes
+from server_properties import ServerProperties
 
 IRC_PORT = 6667
 
@@ -18,8 +19,6 @@ class Client(object):
     _socket = None
     started = False
     stopped = False
-
-	server_properties, _server_properties = async_property()
 
     def __init__(self, hostname, nick, port=IRC_PORT, password=None,
                  local_hostname=None, server_name=None, real_name=None,
@@ -48,6 +47,7 @@ class Client(object):
         self.message_handlers = defaultdict(set) # maps handler to set of registered match_args
         self.stop_handlers = set()
 		self.nick_change_lock = gevent.lock.RLock()
+		self.server_properties = ServerProperties()
 
 		if not logger:
 			self.logger = logging.getLogger(__name__).getChild(type(self).__name__)
