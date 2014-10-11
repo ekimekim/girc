@@ -2,7 +2,7 @@ from common import classproperty, subclasses
 
 
 class InvalidMessage(Exception):
-    def __init__(self, data, message):
+	def __init__(self, data, message):
 		self.data = data
 		self.message = message
 		super(InvalidMessage, self).__init__(data, message)
@@ -61,7 +61,7 @@ class Message(object):
 				return subcls(params=params, **kwargs)
 		return object.__new__(command, *params, **kwargs)
 
-    def __init__(self, client, command, *params, **kwargs):
+	def __init__(self, client, command, *params, **kwargs):
 		"""Takes optional kwargs sender, user, host and ctcp
 		sender, user, host are the args that form the message prefix.
 		Note that the constructor will automatically return the appropriate Message subclass
@@ -69,15 +69,15 @@ class Message(object):
 		"""
 		# due to limitations of python2, we take generic kwargs and pull out our desired args manually
 		self.client = client
-        self.command = command
-        self.params = params
+		self.command = command
+		self.params = params
 		self.sender = kwargs.pop('sender', None)
 		self.user = kwargs.pop('user', None)
 		self.host = kwargs.pop('host', None)
 		if kwargs:
 			raise TypeError("Unexpected kwargs: {}".format(kwargs))
 
-    def encode(self):
+	def encode(self):
 		parts = [self.command]
 		if self.sender or self.user or self.host:
 			prefix = ':{}'.format(self.sender or '')
@@ -92,20 +92,20 @@ class Message(object):
 			parts += params + [':{}'.format(last_param)]
 		return ' '.join(map(str, parts))
 
-    def send(self, callback=None, block=False):
-        """Send message. If callback given, call when message sent.
-        Callback takes args (client, message)
-        If block=True, waits until message is sent before returning.
-        You cannot pass both callback and block=True (callback is ignored).
-        Note that if you simply need to ensure message Y is sent after message X,
-        waiting is not required - messages are always sent in submitted order.
-        """
-        if block:
-            event = gevent.event.Event()
-            callback = event.set
-        self.client._send(message, callback)
-        if block:
-            event.wait()
+	def send(self, callback=None, block=False):
+		"""Send message. If callback given, call when message sent.
+		Callback takes args (client, message)
+		If block=True, waits until message is sent before returning.
+		You cannot pass both callback and block=True (callback is ignored).
+		Note that if you simply need to ensure message Y is sent after message X,
+		waiting is not required - messages are always sent in submitted order.
+		"""
+		if block:
+			event = gevent.event.Event()
+			callback = event.set
+		self.client._send(message, callback)
+		if block:
+			event.wait()
 
 	def __eq__(self, other):
 		if not isinstance(other, Message):
