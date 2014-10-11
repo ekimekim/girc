@@ -16,7 +16,8 @@ def normalize_channel(name):
 	return '#{}'.format(name)
 
 
-def decode(line):
+def decode(line, client):
+	"""Decode a message. Client is needed as some messages require server properties to parse correctly."""
 	sender = None
 	user = None
 	host = None
@@ -46,7 +47,10 @@ def decode(line):
 			break
 		params.append(words.pop(0))
 
-	return cls(command, *params, sender=sender, user=user, host=host)
+	try:
+		return cls(client, command, *params, sender=sender, user=user, host=host)
+	except Exception as ex:
+		raise InvalidMessage(line, "{cls.__name__}: {ex}".format(cls=type(ex), ex=ex))
 
 
 class Message(object):
@@ -57,13 +61,14 @@ class Message(object):
 				return subcls(params=params, **kwargs)
 		return object.__new__(command, *params, **kwargs)
 
-    def __init__(self, command, *params, **kwargs):
+    def __init__(self, client, command, *params, **kwargs):
 		"""Takes optional kwargs sender, user, host and ctcp
 		sender, user, host are the args that form the message prefix.
 		Note that the constructor will automatically return the appropriate Message subclass
 		if the command is recognised.
 		"""
 		# due to limitations of python2, we take generic kwargs and pull out our desired args manually
+		self.client = client
         self.command = command
         self.params = params
 		self.sender = kwargs.pop('sender', None)
@@ -86,6 +91,21 @@ class Message(object):
 			last_param = params.pop()
 			parts += params + [':{}'.format(last_param)]
 		return ' '.join(map(str, parts))
+
+    def send(self, callback=None, block=False):
+        """Send message. If callback given, call when message sent.
+        Callback takes args (client, message)
+        If block=True, waits until message is sent before returning.
+        You cannot pass both callback and block=True (callback is ignored).
+        Note that if you simply need to ensure message Y is sent after message X,
+        waiting is not required - messages are always sent in submitted order.
+        """
+        if block:
+            event = gevent.event.Event()
+            callback = event.set
+        self.client._send(message, callback)
+        if block:
+            event.wait()
 
 	def __eq__(self, other):
 		if not isinstance(other, Message):

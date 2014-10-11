@@ -59,23 +59,19 @@ class Client(object):
 
 		# init messages
 		if self.password:
-			self.send(message.Pass(self.password))
-		self.send(message.Nick(self.nick))
-		self.send(message.User(self.nick,
-		                       self.local_hostname,
-		                       self.server_name,
-		                       self.real_name))
+			message.Pass(self, self.password).send()
+		message.Nick(self, self.nick).send()
+		message.User(self, self.nick, self.local_hostname, self.server_name, self.real_name).send()
 
 		# default handlers
 
-		@self.add_handler(command=5)
-		def recv_server_properties(client, msg):
-			parts = msg.params[1:-1] # first param is my nick, last param is "are supported by this server"
-			self.server_properties = dict(part.split('=', 1) for part in parts)
+		@self.add_handler(command=message.ISupport)
+		def recv_support(client, msg):
+			self.server_properties.update(msg.properties)
 
 		@self.add_handler(command=message.Ping)
 		def on_ping(client, msg):
-			client.send(message.Pong(msg.payload))
+			message.Pong(client, msg.payload).send()
 
 		@self.add_handler(command=replycodes.errors.NICKNAMEINUSE)
 		def nick_in_use(client, msg):
@@ -85,8 +81,7 @@ class Client(object):
 					return
 				self.set_nick(self.increment_nick(self.nick))
 
-		# note here we use a lambda to delay lookup of a mutable variable
-		@self.add_handler(command='NICK', sender=lambda sender: sender == self.nick)
+		@self.add_handler(command='NICK', sender=self.matches_nick)
 		def forced_nick_change(client, msg):
 			with nick_change_lock:
 				if sender != self.nick:
@@ -124,20 +119,12 @@ class Client(object):
 		if handler in self.message_handlers:
 			del self.message_handlers[handler]
 
-    def send(self, message, callback=None, block=False):
-		"""Send message. If callback given, call when message sent.
-		Callback takes args (client, message)
-		If block=True, waits until message is sent before returning.
-		You cannot pass both callback and block=True (callback is ignored).
-		Note that if you simply need to ensure message Y is sent after message X,
-		waiting is not required - messages are always sent in submitted order.
+    def _send(self, message, callback):
+		"""A low level interface to send a message. You normally want to use Message.send() instead.
+		Callback is called after message is sent, and takes args (client, message).
+		Callback may be None.
 		"""
-		if block:
-			event = gevent.event.Event()
-			callback = event.set
         self._send_queue.put((message, callback))
-		if block:
-			event.wait()
 
     def start(self):
         if self.stopped:
@@ -161,9 +148,11 @@ class Client(object):
 
 	def set_nick(self, nick):
 		"""Change the nick safely. Note this function will block until the change is sent and
-		self.nick is updated. Note there's no way of knowing when the server will stop using the old nick"""
+		self.nick is updated. It will also attempt to block until the server has processed the nick change.
+		"""
 		with nick_change_lock:
-			self.send(message.Nick(nick), block=True)
+			message.Nick(self, nick).send()
+			self.wait_for_messages()
 			self.nick = nick
 
     def _recv_loop(self):
@@ -254,12 +243,15 @@ class Client(object):
         event.wait()
 
     def msg(self, to, content, block=False):
-		"""Shortcut to send a Privmsg. See send()"""
-        self.send_message(message.Privmsg(to, content), block=block)
+		"""Shortcut to send a Privmsg. See Message.send()"""
+        message.Privmsg(self, to, content).send(block=block)
 
     def quit(self, msg=None, block=False):
-		"""Shortcut to send a Quit. See send()"""
-        self.send_message(message.Quit(msg), block=block)
+		"""Shortcut to send a Quit. See Message.send().
+		Note that sending a quit automatically stops the client."""
+        message.Quit(self, msg).send()
+		if block:
+			self.wait_for_stop()
 
 	def wait_for(self, **match_args):
 		"""Block until a message matching given args is received.
@@ -270,3 +262,30 @@ class Client(object):
 		def wait_callback(self, msg):
 			result.set(msg)
 		return result.get()
+
+	def wait_for_messages(self):
+		"""This function will attempt to block until the server has received and processed
+		all current messages. We rely on the fact that servers will generally react to messages
+		in order, and so we queue up a Ping and wait for the corresponding Pong."""
+		# We're conservative here with our payload - 8 characters only, letters and digits,
+		# and we assume it's case insensitive. This still gives us about 40 bits of information.
+		payload = ''.join(random.choice(string.lowercase + string.digits) for x in range(8))
+		received = gevent.event.Event()
+		@self.add_handler(command=message.Pong, payload=lambda value: value.lower() == payload)
+		def on_pong(client, msg):
+			received.set()
+			return True # unregister
+		received.wait()
+
+	def matches_nick(self, value):
+		"""A helper function for use in match args. It takes a value and returns whether that value
+		matches the client's current nick."""
+		return self.nick == value
+
+	def normalize_channel(self, name):
+		"""Ensures that a channel name has a correct prefix, defaulting to the first entry in CHANTYPES."""
+		if not name:
+			raise ValueError("Channel name cannot be empty")
+		if name[0] in self.server_properties.CHANTYPES:
+			return name
+		return "{prefix}{name}".format(name=name, prefix=self.server_properties.CHANTYPES[0])
