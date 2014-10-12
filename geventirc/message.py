@@ -369,6 +369,37 @@ class Pong(Command):
 	def payload(self):
 		return params[0]
 
+class ISupport(Command):
+	command = replycodes.replies.ISUPPORT
+	def from_args(self, properties):
+		# i'm lazy, and if you want this you're doing something weird
+		raise NotImplementedError("Client-side construction of ISUPPORT message is not supported")
+	@property
+	def properties(self, nick, *args):
+		"""Returns server properties described by message as a dict.
+		Keys that are set without a value are given the value True.
+		Keys that are unset are given the value None.
+		NOTE: You generally do not want to handle this message directly,
+		instead use client.server_properties, which aggregates and provides helpers."""
+		args = args[1:-1] # first arg is nick, last arg is "are supported by this server"
+		# ISUPPORT args can have the following forms:
+		# -KEY[=VALUE] : unset KEY
+		# KEY[=] : set KEY true
+		# KEY=VALUE : set KEY to value
+		result = {}
+		for arg in args:
+			if '=' in arg:
+				key, value = arg.split('=', 1)
+			else:
+				key, value = arg, ''
+			if not value:
+				value = True
+			if key.startswith('-'):
+				key = key[1:]
+				value = None
+			result[key] = value
+		return result
+
 
 def match(message, command=None, params=None, **attr_args):
 	"""Return True if message is considered a match according to args:
