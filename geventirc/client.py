@@ -13,14 +13,16 @@ import message
 import replycodes
 from server_properties import ServerProperties
 
-IRC_PORT = 6667
+
+DEFAULT_PORT = 6667
+
 
 class Client(object):
 	_socket = None
 	started = False
 	stopped = False
 
-	def __init__(self, hostname, nick, port=IRC_PORT, password=None,
+	def __init__(self, hostname, nick, port=DEFAULT_PORT, password=None,
 		         local_hostname=None, server_name=None, real_name=None,
 		         stop_handler=[], logger=None):
 		"""Create a new IRC connection to given host and port.
@@ -35,11 +37,10 @@ class Client(object):
 		"""
 		self.hostname = hostname
 		self.port = port
-		self.nick = nick
 		self.password = password
 		self.real_name = real_name or nick
 		self.local_hostname = local_hostname or socket.gethostname()
-		self.server_name = server_name or 'gevent-irc'
+		self.server_name = server_name or hostname
 
 		self._recv_queue = gevent.queue.Queue()
 		self._send_queue = gevent.queue.Queue()
@@ -48,6 +49,23 @@ class Client(object):
 		self.stop_handlers = set()
 		self.nick_change_lock = gevent.lock.RLock()
 		self.server_properties = ServerProperties()
+
+		# NOTE: An aside about nicks
+		# When our nick is changing, race cdns mean we aren't sure if the server is expecting
+		# our old nick or our new nick. We have a few different attributes to address this:
+		# self.nick: a lock-protected lookup of self._nick (the lock is self._nick_lock),
+		#            it represents what we should refer to ourself as (and blocks if it's ambiguous)
+		# self._nick: what we think the server thinks our nick is. when our nick is in the process
+		#             of changing, this is the OLD nick.
+		# self._new_nick: None unless it is in the process of changing. When changing, the nick we
+		#                 are switching to.
+		# We can only attempt to change our nick when it is not in the middle of changing (we do this
+		# by holding self._nick_lock). If we get a forced nick change x -> y while changing, it changes
+		# self._nick if x is the old nick, or self._new_nick if x is the new nick.
+		# self.matches_nick() will always check both _nick and _new_nick.
+		self._nick = nick
+		self._nick_lock = gevent.lock.RLock()
+		self._new_nick = None
 
 		if not logger:
 			self.logger = logging.getLogger(__name__).getChild(type(self).__name__)
@@ -83,11 +101,50 @@ class Client(object):
 
 		@self.add_handler(command='NICK', sender=self.matches_nick)
 		def forced_nick_change(client, msg):
-			with nick_change_lock:
-				if sender != self.nick:
-					# this probably means a race condition, ignore it
-					return
-				self.nick = msg.nickname
+			if sender == self._nick:
+				# either we aren't changing and everything is fine, or we are changing but this was
+				# sent before the NICK command was processed by the server, so we change our old value
+				# so further forced_nick_changes and matches_nick() still works.
+				self._nick = msg.nickname
+			elif sender == self._new_nick:
+				# we are changing, and this was sent after our change was recieved so we must respect it.
+				self._new_nick = msg.nickname
+
+	@property
+	def nick(self):
+		"""Get our current nick. May block if it is in the middle of being changed."""
+		with self._nick_lock:
+			return self._nick
+
+	@nick.setter
+	def nick(self, new_nick):
+		"""Change the nick safely. Note this will block until the change is sent, acknowledged
+		and self.nick is updated.
+		"""
+		with self._nick_lock:
+			try:
+				self._new_nick = new_nick
+				nick_msg = message.Nick(self, new_nick)
+				try:
+					nick_msg.send()
+					# by waiting for messages, we force ourselves to wait until the Nick() has been processed
+					self.wait_for_messages()
+				except Exception:
+					self.quit("Unrecoverable error while changing nick")
+					raise
+				self._nick = self._new_nick # note that self._new_nick may not be new_nick, see forced_nick_change()
+			finally:
+				# either we completed successfully or we aborted
+				# either way, we need to no longer be in the middle of changing nicks
+				self._new_nick = None
+
+	def matches_nick(self, value):
+		"""A helper function for use in match args. It takes a value and returns whether that value
+		matches the client's current nick.
+		Note that you should use this, NOT self.nick, for checking incoming messages.
+		This function will continue working when self.nick is ambiguous, whereas the latter will block.
+		"""
+		return value in (self._nick, self._new_nick)
 
 	def add_handler(self, callback=None, **match_args):
 		"""Add callback to be called upon a matching message being received.
@@ -146,15 +203,6 @@ class Client(object):
 		self._group.spawn(self._send_loop)
 		self._group.spawn(self._recv_loop)
 
-	def set_nick(self, nick):
-		"""Change the nick safely. Note this function will block until the change is sent and
-		self.nick is updated. It will also attempt to block until the server has processed the nick change.
-		"""
-		with nick_change_lock:
-			message.Nick(self, nick).send()
-			self.wait_for_messages()
-			self.nick = nick
-
 	def _recv_loop(self):
 		partial = ''
 		try:
@@ -176,7 +224,7 @@ class Client(object):
 			logger.exception("error in _recv_loop")
 		if partial:
 			logger.warning("recv stream cut off mid-line, unused data: %r", partial)
-		self.stop(self)
+		self.stop()
 
 	def _send_loop(self):
 		try:
@@ -261,6 +309,7 @@ class Client(object):
 		@self.add_handler(**match_args)
 		def wait_callback(self, msg):
 			result.set(msg)
+			return True # unregister
 		return result.get()
 
 	def wait_for_messages(self):
@@ -276,11 +325,6 @@ class Client(object):
 			received.set()
 			return True # unregister
 		received.wait()
-
-	def matches_nick(self, value):
-		"""A helper function for use in match args. It takes a value and returns whether that value
-		matches the client's current nick."""
-		return self.nick == value
 
 	def normalize_channel(self, name):
 		"""Ensures that a channel name has a correct prefix, defaulting to the first entry in CHANTYPES."""
