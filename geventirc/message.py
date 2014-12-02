@@ -406,6 +406,7 @@ class ISupport(Command):
 		return result
 
 
+regex_type = type(re.compile(''))
 def match(message, command=None, params=None, **attr_args):
 	"""Return True if message is considered a match according to args:
 		command: A command or list of commands the message must match, or None for any command.
@@ -421,7 +422,8 @@ def match(message, command=None, params=None, **attr_args):
 	Value matches:
 		Several times above, it is mentioned that a "value must match". The meaning of this
 		depends on the type of the passed in match arg:
-			string: Regex to match the whole message value
+			string: Exact string match on the message value
+			regex object (as returned by re.compile()): re.match() on message value
 			callable: Function that takes a single arg (the message value) and returns True or False
 			iterable: A list of the above, of which at least one must match.
 			None: Match anything (useful with the params arg)
@@ -430,7 +432,7 @@ def match(message, command=None, params=None, **attr_args):
 		Match any message:
 			match(message)
 		Match a Privmsg that begins with "foobar":
-			match(message, command=Privmsg, message="foobar.*")
+			match(message, command=Privmsg, message=re.compile("foobar.*"))
 		Match a Nick or Mode message from users "alice" or "bob":
 			match(message, command=[Nick, Mode], sender=["alice", "bob"])
 		Match a Mode message which gives a person Op status:
@@ -446,8 +448,11 @@ def match(message, command=None, params=None, **attr_args):
 		if isinstance(match_spec, basestring) or not iterable(match_spec):
 			match_spec = [match_spec]
 		for match_part in match_spec:
+			if isinstance(match_part, regex_type):
+				match_part = match_part.match
 			if isinstance(match_part, basestring):
-				match_part = re.compile("^({})$".format(match_part))
+				match_value = match_part
+				match_part = lambda v: match_value == v
 			if match_part(value):
 				return True
 		return False
