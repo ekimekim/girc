@@ -1,4 +1,10 @@
 
+import re
+
+from geventirc import replycodes
+from geventirc.messages import Kick
+
+
 KNOWN_NAMES = dict(
 	owners = 'q',
 	admins = 'a',
@@ -7,6 +13,7 @@ KNOWN_NAMES = dict(
 	voiced = 'v',
 	users = '',
 )
+
 
 class UserList(object):
 	"""Tracks users and their privilige levels.
@@ -17,7 +24,7 @@ class UserList(object):
 	(eg. "voiced").
 	The base unpriviliged level is referred to as simply "users",
 	and its mode letter and prefix char are the empty string.
-	Note that (voiced, 'v', '+') and ('op', 'o', '@') are mandated by RFC.
+	Note that ('voiced', 'v', '+') and ('op', 'o', '@') are mandated by RFC.
 
 	A set of usernames for a given level can be looked up by getitem (eg. userlist['o'] or userlist['@']).
 	You can also look up a level by friendly name as an attribute, eg. userlist.ops
@@ -88,7 +95,7 @@ class UserList(object):
 			raise KeyError(item)
 		item = _item
 		result = set()
-		for mode in modes:
+		for mode in self.modes:
 			result.update(self._user_map[mode])
 			if mode == item: break
 		return result

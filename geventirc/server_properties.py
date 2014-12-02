@@ -12,7 +12,7 @@ class ServerProperties(dotdict):
 	def __getitem__(self, item):
 		if item in self:
 			return super(ServerProperties, self).__getitem__(item)
-		return defaults[item]
+		return self.defaults[item]
 
 	@property
 	def prefixes(self):

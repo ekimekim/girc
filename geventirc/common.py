@@ -11,7 +11,7 @@ class classproperty(object):
 	def __init__(self, fn):
 		self.fn = fn
 	def __get__(self, instance, cls):
-		return fn(cls)
+		return self.fn(cls)
 
 
 def async_property():

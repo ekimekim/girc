@@ -1,4 +1,11 @@
-from common import classproperty, subclasses
+
+import random
+import re
+
+import gevent
+
+from geventirc import replycodes
+from geventirc.common import classproperty, subclasses, iterable
 
 
 class InvalidMessage(Exception):
@@ -8,12 +15,6 @@ class InvalidMessage(Exception):
 		super(InvalidMessage, self).__init__(data, message)
 	def __str__(self):
 		return "Message {self.data!r} could not be parsed: {self.message}".format(self=self)
-
-
-def normalize_channel(name):
-	if name.startswith('#') or name.startswith('&'):
-		return name
-	return '#{}'.format(name)
 
 
 def decode(line, client):
@@ -48,18 +49,18 @@ def decode(line, client):
 		params.append(words.pop(0))
 
 	try:
-		return cls(client, command, *params, sender=sender, user=user, host=host)
+		return Message(client, command, *params, sender=sender, user=user, host=host)
 	except Exception as ex:
 		raise InvalidMessage(line, "{cls.__name__}: {ex}".format(cls=type(ex), ex=ex))
 
 
 class Message(object):
 
-	def __new__(cls, command, *params, **kwargs):
+	def __new__(cls, client, command, *params, **kwargs):
 		for subcls in subclasses(Command):
 			if subcls.command == command:
-				return subcls(params=params, **kwargs)
-		return object.__new__(command, *params, **kwargs)
+				return subcls(client, params=params, **kwargs)
+		return object.__new__(client, command, *params, **kwargs)
 
 	def __init__(self, client, command, *params, **kwargs):
 		"""Takes optional kwargs sender, user, host and ctcp
@@ -103,7 +104,7 @@ class Message(object):
 		if block:
 			event = gevent.event.Event()
 			callback = event.set
-		self.client._send(message, callback)
+		self.client._send(self, callback)
 		if block:
 			event.wait()
 
@@ -129,7 +130,7 @@ class Command(Message):
 	"""Helper subclass that known commands inherit from"""
 	__new__ = object.__new__
 
-	def __init__(self, *args, **kwargs):
+	def __init__(self, client, *args, **kwargs):
 		"""We allow params to be set via command-specific args (see from_args)
 		or directly with params kwarg (this is mainly useful when decoding)"""
 		EXTRACT = {'sender', 'user', 'host', 'params'}
@@ -138,14 +139,14 @@ class Command(Message):
 			if key in kwargs:
 				extracted[key] = kwargs.pop(key)
 		if 'params' in extracted:
-			params = extracted.pop(params)
+			params = extracted.pop('params')
 			if args or kwargs:
 				raise TypeError("Recieved params as well as unexpected args and kwargs: {}, {}".format(args, kwargs))
 		else:
 			params = self.from_args(*args, **kwargs)
-		super(Command, self).__init__(self.command, *params, **extracted)
+		super(Command, self).__init__(client, self.command, *params, **extracted)
 
-	def from_args(self, self, *args, **kwargs):
+	def from_args(self, *args, **kwargs):
 		"""Subclasses should provide this method, which should take the args you want users
 		to pass into the constructor, and return a list of params.
 		"""
@@ -184,7 +185,7 @@ class Quit(Command):
 		return () if msg is None else (msg,)
 	@property
 	def message(self):
-		return params[0] if params else None
+		return self.params[0] if self.params else None
 
 class Join(Command):
 	def from_args(self, *channels):
@@ -202,7 +203,7 @@ class Join(Command):
 
 		names, keys = zip(*keys.items())
 		names += list(nokeys)
-		names = map(normalize_channel, names)
+		names = map(self.client.normalize_channel, names)
 
 		if not names:
 			raise TypeError('No channels given')
@@ -222,7 +223,7 @@ class Join(Command):
 
 class Part(Command):
 	def from_args(self, *channels):
-		channels = map(normalize_channel, channels)
+		channels = map(self.client.normalize_channel, channels)
 		return ','.join(channels),
 	@property
 	def channels(self):
@@ -237,6 +238,10 @@ class Mode(Command):
 			(flag, arg): Sets flag with arg
 			(-flag, arg): Unsets flag with arg
 			(flag, arg, adding): Sets or unsets flag with arg depending on if adding is True
+		Example:
+			>>> m = Mode(client, '#foobar', '-s', 'n', ('b', 'someguy'))
+			>>> m.params
+			['#foobar', '-s+nb', 'someguy']
 		"""
 		currently_adding = True
 		args = []
@@ -244,7 +249,7 @@ class Mode(Command):
 		for modespec in modes:
 			if isinstance(modespec, basestring):
 				modespec = modespec, None
-			if len(mode) == 2:
+			if len(modespec) == 2:
 				mode, arg = modespec
 				if mode.startswith('-'):
 					mode = mode[1:]
@@ -315,7 +320,7 @@ class Privmsg(Command):
 
 class List(Command):
 	def from_args(self, *channels):
-		channels = map(normalize_channels, channels)
+		channels = map(self.client.normalize_channel, channels)
 		if not channels: return
 		return ','.join(channels),
 	@property
@@ -324,7 +329,7 @@ class List(Command):
 
 class Kick(Command):
 	def from_args(self, channel, nick, msg=None):
-		channel = normalize_channel(channel)
+		channel = self.client.normalize_channel(channel)
 		return (channel, nick) if msg is None else (channel, nick, msg)
 	@property
 	def channel(self):
@@ -342,9 +347,9 @@ class Whois(Command):
 		nicks = ','.join(nicks)
 		if not nicks:
 			raise TypeError("No nicks given")
-		server = kwargs.pop(server, None)
+		server = kwargs.pop('server', None)
 		if kwargs:
-			raise TypeError("Unexpected kwargs: {}".format(kawrgs))
+			raise TypeError("Unexpected kwargs: {}".format(kwargs))
 		return (nicks,) if server is None else (server, nicks)
 	@property
 	def nicks(self):
@@ -360,14 +365,14 @@ class Ping(Command):
 		return payload,
 	@property
 	def payload(self):
-		return params[0]
+		return self.params[0]
 
 class Pong(Command):
 	def from_args(self, payload):
 		return payload,
 	@property
 	def payload(self):
-		return params[0]
+		return self.params[0]
 
 class ISupport(Command):
 	command = replycodes.replies.ISUPPORT

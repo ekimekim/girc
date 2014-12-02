@@ -1,6 +1,8 @@
 
 import logging
 import errno
+import string
+import random
 from collections import defaultdict
 
 import gevent.queue
@@ -47,7 +49,6 @@ class Client(object):
 		self._group = gevent.pool.Group()
 		self.message_handlers = defaultdict(set) # maps handler to set of registered match_args
 		self.stop_handlers = set()
-		self.nick_change_lock = gevent.lock.RLock()
 		self.server_properties = ServerProperties()
 
 		# NOTE: An aside about nicks
@@ -93,22 +94,35 @@ class Client(object):
 
 		@self.add_handler(command=replycodes.errors.NICKNAMEINUSE)
 		def nick_in_use(client, msg):
-			with nick_change_lock:
-				if msg.params[0] != self.nick:
-					# this probably means a race condition, ignore it
+			bad_nick = msg.params[0]
+			if self._new_nick:
+				# if we're changing nicks, ignore it unless it matches the new one
+				if bad_nick != self._new_nick:
 					return
-				self.set_nick(self.increment_nick(self.nick))
+				# cancel current change and wait
+				self._new_nick = self._nick
+			else:
+				# if we aren't changing nicks...
+				if bad_nick != self._nick:
+					return # this is some kind of race cdn
+			# if we've made it here, we want to increment our nick
+			with self._nick_lock:
+				# now that we've waited for any other operations to finish, let's double check
+				# that we're still talking about the same nick
+				if bad_nick != self._nick:
+					return
+				self.nick = self.increment_nick(self._nick)
 
 		@self.add_handler(command='NICK', sender=self.matches_nick)
 		def forced_nick_change(client, msg):
-			if sender == self._nick:
+			if msg.sender == self._new_nick:
+				# we are changing, and this was sent after our change was recieved so we must respect it.
+				self._new_nick = msg.nickname
+			elif msg.sender == self._nick:
 				# either we aren't changing and everything is fine, or we are changing but this was
 				# sent before the NICK command was processed by the server, so we change our old value
 				# so further forced_nick_changes and matches_nick() still works.
 				self._nick = msg.nickname
-			elif sender == self._new_nick:
-				# we are changing, and this was sent after our change was recieved so we must respect it.
-				self._new_nick = msg.nickname
 
 	@property
 	def nick(self):
@@ -221,9 +235,9 @@ class Client(object):
 				for line in lines:
 					self._process(line)
 		except Exception:
-			logger.exception("error in _recv_loop")
+			self.logger.exception("error in _recv_loop")
 		if partial:
-			logger.warning("recv stream cut off mid-line, unused data: %r", partial)
+			self.logger.warning("recv stream cut off mid-line, unused data: %r", partial)
 		self.stop()
 
 	def _send_loop(self):
@@ -245,7 +259,7 @@ class Client(object):
 					self.logger.info("QUIT sent, client shutting down")
 					break
 		except Exception:
-			logger.exception("error in _send_loop")
+			self.logger.exception("error in _send_loop")
 		self.stop()
 
 	def _process(self, line):
