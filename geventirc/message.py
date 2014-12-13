@@ -64,7 +64,7 @@ class MessageDispatchMeta(type):
 
 	def __call__(self, client, *args, **kwargs):
 		if self is Message: # only Message is special
-			return self.dispatch(*args, **kwargs)
+			return self.dispatch(client, *args, **kwargs)
 		return super(MessageDispatchMeta, self).__call__(client, *args, **kwargs)
 
 	def dispatch(self, client, command, *params, **kwargs):

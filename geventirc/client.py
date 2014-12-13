@@ -197,6 +197,7 @@ class Client(object):
 		Callback is called after message is sent, and takes args (client, message).
 		Callback may be None.
 		"""
+		self.logger.debug("Queuing message {}".format(message))
 		self._send_queue.put((message, callback))
 
 	def start(self):
