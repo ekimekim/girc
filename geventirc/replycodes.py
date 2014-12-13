@@ -48,6 +48,11 @@ errors = dotdict(
 )
 
 replies = dotdict(
+	WELCOME = 1,
+	YOURHOST = 2,
+	CREATED = 3,
+	MYINFO = 4,
+	ISUPPORT = 5,
 	NONE = 300,
 	AWAY = 301,
 	USERHOST = 302,
