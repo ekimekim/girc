@@ -47,7 +47,9 @@ class Client(object):
 		self._recv_queue = gevent.queue.Queue()
 		self._send_queue = gevent.queue.Queue()
 		self._group = gevent.pool.Group()
-		self.message_handlers = defaultdict(set) # maps handler to set of registered match_args
+		self.message_handlers = defaultdict(list) # maps handler to set of registered match_args
+		                                          # we use list instead of set because dicts aren't hashable
+		                                          # and this was the easist workaround
 		self.stop_handlers = set()
 		self.server_properties = ServerProperties()
 
@@ -176,9 +178,9 @@ class Client(object):
 			def foo(client, message):
 				...
 		"""
-		def _add_handler(self, callback):
+		def _add_handler(callback):
 			self.logger.info("Registering handler {} with match args {}".format(callback, match_args))
-			self.message_handlers[callback].add(match_args)
+			self.message_handlers[callback].append(match_args)
 			return callback
 
 		if callback is None:
@@ -244,7 +246,7 @@ class Client(object):
 		try:
 			while True:
 				message, callback = self._send_queue.get()
-				line = message.encode()
+				line = "{}\r\n".format(message.encode())
 				self.logger.debug("Sending message: {!r}".format(line))
 				try:
 					self._socket.sendall(line)
@@ -268,7 +270,7 @@ class Client(object):
 		if not line:
 			return
 		try:
-			msg = message.decode(line)
+			msg = message.decode(line, self)
 		except Exception:
 			logging.warning("Could not decode message from server: {!r}".format(line), exc_info=True)
 			return
