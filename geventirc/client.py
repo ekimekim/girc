@@ -271,13 +271,13 @@ class Client(object):
 			return
 		try:
 			msg = message.decode(line, self)
-		except Exception:
+			self.logger.debug("Handling message: {}".format(msg))
+			for handler, match_arg_set in self.message_handlers.items():
+				if any(message.match(msg, **match_args) for match_args in match_arg_set):
+					self._group.spawn(self._handler_wrapper, handler, msg)
+		except message.InvalidMessage:
 			logging.warning("Could not decode message from server: {!r}".format(line), exc_info=True)
 			return
-		self.logger.debug("Handling message: {}".format(msg))
-		for handler, match_arg_set in self.message_handlers.items():
-			if any(message.match(msg, **match_args) for match_args in match_arg_set):
-				self._group.spawn(self._handler_wrapper, handler, msg)
 
 	def _handler_wrapper(self, handler, msg):
 		self.logger.debug("Calling handler {} with message: {}".format(handler, msg))

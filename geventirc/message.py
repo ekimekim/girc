@@ -1,4 +1,5 @@
 
+import sys
 import random
 import re
 
@@ -50,8 +51,10 @@ def decode(line, client):
 
 	try:
 		return Message(client, command, *params, sender=sender, user=user, host=host)
-	except Exception as ex:
-		raise InvalidMessage(line, "{cls.__name__}: {ex}".format(cls=type(ex), ex=ex))
+	except Exception:
+		ex_type, ex, tb = sys.exc_info()
+		new_ex = InvalidMessage(line, "{cls.__name__}: {ex}".format(cls=type(ex), ex=ex))
+		raise type(new_ex), new_ex, tb
 
 
 class Message(object):
