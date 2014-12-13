@@ -158,9 +158,10 @@ class Command(Message):
 			params = extracted.pop('params')
 			if args or kwargs:
 				raise TypeError("Recieved params as well as unexpected args and kwargs: {}, {}".format(args, kwargs))
+			super(Command, self).__init__(client, self.command, *params, **extracted)
 		else:
-			params = self.from_args(*args, **kwargs)
-		super(Command, self).__init__(client, self.command, *params, **extracted)
+			super(Command, self).__init__(client, self.command, **extracted)
+			self.params = self.from_args(*args, **kwargs)
 
 	def from_args(self, *args, **kwargs):
 		"""Subclasses should provide this method, which should take the args you want users

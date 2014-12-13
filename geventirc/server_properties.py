@@ -6,7 +6,8 @@ class ServerProperties(dotdict):
 	"""A dict containing server properties, but with some defaults and pre-processing."""
 
 	defaults = {
-		'PREFIX': '(ov)@+'
+		'CHANTYPES': '#',
+		'PREFIX': '(ov)@+',
 	}
 
 	def __getitem__(self, item):

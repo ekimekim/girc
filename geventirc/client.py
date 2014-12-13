@@ -24,6 +24,8 @@ class Client(object):
 	started = False
 	stopped = False
 
+	WAIT_FOR_MESSAGES_TIMEOUT = 10
+
 	def __init__(self, hostname, nick, port=DEFAULT_PORT, password=None,
 		         local_hostname=None, server_name=None, real_name=None,
 		         stop_handler=[], logger=None):
@@ -334,13 +336,20 @@ class Client(object):
 		in order, and so we queue up a Ping and wait for the corresponding Pong."""
 		# We're conservative here with our payload - 8 characters only, letters and digits,
 		# and we assume it's case insensitive. This still gives us about 40 bits of information.
+		# Also, some servers set the payload to their server name in the reply
+		# and attach the payload as a second arg. Finally, we just dump a reasonable timeout
+		# over the whole thing, just in case.
 		payload = ''.join(random.choice(string.lowercase + string.digits) for x in range(8))
 		received = gevent.event.Event()
-		@self.add_handler(command=message.Pong, payload=lambda value: value.lower() == payload)
+		def match_payload(params):
+			return any(value.lower() == payload for value in params)
+		@self.add_handler(command=message.Pong, params=match_payload)
 		def on_pong(client, msg):
 			received.set()
 			return True # unregister
-		received.wait()
+		message.Ping(self, payload).send()
+		if not received.wait(self.WAIT_FOR_MESSAGES_TIMEOUT):
+			self.logger.warning("Timed out while waiting for matching pong in wait_for_messages()")
 
 	def normalize_channel(self, name):
 		"""Ensures that a channel name has a correct prefix, defaulting to the first entry in CHANTYPES."""
