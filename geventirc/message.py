@@ -32,6 +32,7 @@ def decode(line, client):
 
 	if words[0].startswith(':'):
 		prefix = words.pop(0)
+		prefix = prefix[1:] # strip leading :
 		if '@' in prefix:
 			prefix, host = prefix.split('@', 1)
 		if '!' in prefix:
@@ -57,13 +58,25 @@ def decode(line, client):
 		raise type(new_ex), new_ex, tb
 
 
-class Message(object):
+class MessageDispatchMeta(type):
+	"""A metatype that overrides Message() so we can dispatch the construction out to the revelant Command."""
+	# I originally tried to implement this with Message.__new__ but had problems with multiple calls to __init__
 
-	def __new__(cls, client, command, *params, **kwargs):
+	def __call__(self, client, *args, **kwargs):
+		if self is Message: # only Message is special
+			return self.dispatch(*args, **kwargs)
+		return super(MessageDispatchMeta, self).__call__(client, *args, **kwargs)
+
+	def dispatch(self, client, command, *params, **kwargs):
 		for subcls in subclasses(Command):
 			if subcls.command == command:
 				return subcls(client, params=params, **kwargs)
-		return object.__new__(client, command, *params, **kwargs)
+		# no matching command, default to generic Message()
+		return super(MessageDispatchMeta, self).__call__(client, command, *params, **kwargs)
+
+
+class Message(object):
+	__metaclass__ = MessageDispatchMeta
 
 	def __init__(self, client, command, *params, **kwargs):
 		"""Takes optional kwargs sender, user, host and ctcp
@@ -129,9 +142,9 @@ class Message(object):
 		"""If command is a numeric code, returns the string representation, otherwise None"""
 		return replycodes.codes.get(self.command, None)
 
+
 class Command(Message):
 	"""Helper subclass that known commands inherit from"""
-	__new__ = object.__new__
 
 	def __init__(self, client, *args, **kwargs):
 		"""We allow params to be set via command-specific args (see from_args)
