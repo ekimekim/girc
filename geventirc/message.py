@@ -204,7 +204,7 @@ class Join(Command):
 				name, key = channel
 				keys[name] = key
 
-		names, keys = zip(*keys.items())
+		names, keys = zip(*keys.items()) if keys else [], []
 		names += list(nokeys)
 		names = map(self.client.normalize_channel, names)
 
@@ -477,7 +477,7 @@ def match(message, command=None, params=None, **attr_args):
 		else:
 			commands = command
 		for command in commands:
-			if issubclass(command, Command):
+			if isinstance(command, type) and issubclass(command, Command):
 				command = command.command
 			command = str(command).upper()
 			if command != message.command:

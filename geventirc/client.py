@@ -230,7 +230,7 @@ class Client(object):
 						continue
 					raise
 				if not data:
-					self.logger.info("failed to recv, socket closed")
+					self.logger.info("no data from recv, socket closed")
 					break
 				lines = (partial+data).split('\r\n')
 				partial = lines.pop() # everything after final \r\n
@@ -289,13 +289,12 @@ class Client(object):
 			self.rm_handler(handler)
 
 	def stop(self):
+		if self.stopped:
+			return
 		self.stopped = True
 		# we spawn a child greenlet so things don't screw up if current greenlet is in self._group
 		def _stop():
 			self._group.kill()
-			if self._socket is not None:
-				self._socket.close()
-				self._socket = None
 			for fn in self.stop_handlers:
 				fn(self)
 		gevent.spawn(_stop).join()
