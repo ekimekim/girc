@@ -274,7 +274,7 @@ class Client(object):
 			self.logger.debug("Handling message: {}".format(msg))
 			for handler, match_arg_set in self.message_handlers.items():
 				if any(message.match(msg, **match_args) for match_args in match_arg_set):
-					self._group.spawn(self._handler_wrapper, handler, msg)
+					self._handler_wrapper(handler, msg)
 		except message.InvalidMessage:
 			logging.warning("Could not decode message from server: {!r}".format(line), exc_info=True)
 			return
