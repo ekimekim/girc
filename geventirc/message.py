@@ -268,23 +268,34 @@ class Mode(Command):
 		if args:
 			params += args,
 		return params
+
 	@property
 	def target(self):
 		return self.params[0]
+
 	@property
 	def modes(self):
 		"""List of (mode, arg, adding) for modes being changed. arg is None if no arg."""
-		currently_adding = True
 		target, modestr, args = self.params
+		args = args[:]
 		result = []
+		adding = True
+
 		for c in modestr:
+			param = None
 			if c in '+-':
-				currently_adding = (c == '+')
+				adding = (c == '+')
 				continue
-			# TODO needs support info
-			# we can attempt to parse without support info, but this is only unambiguous if
-			# there are the same number of modes as args
-			# we may want to treat unknown modes as no-arg modes
+			mode_type = self.client.server_properties.mode_type(c)
+			if mode_type in ("list", "param-unset") or (adding and mode_type == "param"):
+				if not args:
+					message = "Not enough params: Could not get param for {}{}".format(('+' if adding else '-'), c)
+					raise InvalidMessage(self.encode(), message)
+				param = args.pop(0)
+			# note we're not differentiating between "mode doesn't have param" and "mode unknown"
+			result.add((c, param, adding))
+
+		return result
 
 
 class Privmsg(Command):
