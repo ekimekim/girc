@@ -302,12 +302,6 @@ class Client(object):
 				fn(self)
 		gevent.spawn(_stop).join()
 
-	def wait_for_stop(self):
-		"""Wait for client to exit"""
-		event = gevent.event.Event()
-		self.stop_handlers.add(lambda self: event.set())
-		event.wait()
-
 	def msg(self, to, content, block=False):
 		"""Shortcut to send a Privmsg. See Message.send()"""
 		message.Privmsg(self, to, content).send(block=block)
@@ -330,6 +324,12 @@ class Client(object):
 			return True # unregister
 		return result.get()
 
+	def wait_for_stop(self):
+		"""Wait for client to exit"""
+		event = gevent.event.Event()
+		self.stop_handlers.add(lambda self: event.set())
+		event.wait()
+
 	def wait_for_messages(self):
 		"""This function will attempt to block until the server has received and processed
 		all current messages. We rely on the fact that servers will generally react to messages
@@ -350,6 +350,10 @@ class Client(object):
 		message.Ping(self, payload).send()
 		if not received.wait(self.WAIT_FOR_MESSAGES_TIMEOUT):
 			self.logger.warning("Timed out while waiting for matching pong in wait_for_messages()")
+
+	# aliases - the wait_for_* names are more descriptive, but they map to common async concepts:
+	join = wait_for_stop
+	sync = wait_for_messages
 
 	def normalize_channel(self, name):
 		"""Ensures that a channel name has a correct prefix, defaulting to the first entry in CHANTYPES."""
