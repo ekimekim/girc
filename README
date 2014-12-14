@@ -31,7 +31,7 @@ channel = client.channel('#mychan')
 channel.join()
 channel.msg("Hello")
 
-@client.add_handler(command='PRIVMSG', target=channel.name, message=lambda value: nick in value.lower())
+@client.add_handler(command='PRIVMSG', payload=lambda value: nick in value.lower())
 def mentioned(client, msg):
 	channel.msg("Hello, {}".format(msg.sender))
 

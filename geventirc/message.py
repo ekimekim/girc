@@ -295,7 +295,7 @@ class Mode(Command):
 	def modes(self):
 		"""List of (mode, arg, adding) for modes being changed. arg is None if no arg."""
 		target, modestr = self.params[:2]
-		args = self.params[2:]
+		args = list(self.params[2:])
 		result = []
 		adding = True
 
@@ -328,19 +328,19 @@ class Privmsg(Command):
 		return target, msg
 
 	@property
-	def target(self):
+	def targets(self):
 		return self.params[0].split(',')
 
 	@property
-	def message(self):
+	def payload(self):
 		return self.params[1]
 
 	@property
 	def ctcp(self):
 		"""Returns (ctcp_command, ctcp_arg) or None"""
-		if not (self.message.startswith('\x01') and self.message.endswith('\x01')):
+		if not (self.payload.startswith('\x01') and self.payload.endswith('\x01')):
 			return
-		return self.message.strip('\x01').split(' ', 1)
+		return self.payload.strip('\x01').split(' ', 1)
 
 	@classmethod
 	def action(cls, target, message):
@@ -482,8 +482,11 @@ def match(message, command=None, params=None, **attr_args):
 			if isinstance(match_part, basestring):
 				match_value = match_part
 				match_part = lambda v: match_value == v
-			if match_part(value):
-				return True
+			try:
+				if match_part(value):
+					return True
+			except Exception:
+				pass # a failed callable means False
 		return False
 
 	if command is not None:

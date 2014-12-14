@@ -35,7 +35,7 @@ class Channel(object):
 	def join(self, block=False):
 		"""Join the channel if not already joined. If block=True, do not return until name list is received."""
 		if self.joined: return
-		self.client.send(Join(self.name))
+		Join(self.client, self.name).send()
 		self._join()
 		if not block: return
 		self.users_ready.wait(self.USERS_READY_TIMEOUT)
