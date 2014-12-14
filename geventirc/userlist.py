@@ -5,16 +5,6 @@ from geventirc import replycodes
 from geventirc.messages import Kick
 
 
-KNOWN_NAMES = dict(
-	owners = 'q',
-	admins = 'a',
-	ops = 'o',
-	halfops = 'h',
-	voiced = 'v',
-	users = '',
-)
-
-
 class UserList(object):
 	"""Tracks users and their privilige levels.
 
@@ -37,6 +27,15 @@ class UserList(object):
 	However, several helper methods exist for your convenience, such as only() and below()
 	(see individual docstrings).
 	"""
+
+	KNOWN_NAMES = dict(
+		owners = 'q',
+		admins = 'a',
+		ops = 'o',
+		halfops = 'h',
+		voiced = 'v',
+		users = '',
+	)
 
 	def __init__(self, client, channel):
 		"""Takes a client object and string channel name. Begins watching for relevant messages immediately."""
@@ -78,8 +77,8 @@ class UserList(object):
 			return name
 		if name in self.prefix_map:
 			return self.prefix_map[name]
-		if name in KNOWN_NAMES:
-			mode = KNOWN_NAMES[name]
+		if name in self.KNOWN_NAMES:
+			mode = self.KNOWN_NAMES[name]
 			if mode in self.modes:
 				return mode
 
