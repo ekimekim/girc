@@ -1,0 +1,39 @@
+geventirc is a gevent-based irc library, with an emphasis on trying to do common tasks
+so that the user doesn't have to.
+
+This was originally based on http://github/gwik/geventirc, however it has diverged signifigantly since then.
+
+The primary means by which a user reacts to messages is using the message handler system:
+	@client.add_handler(command='PRIVMSG', sender='#mychan')
+	def chan_message(client, msg):
+		...
+
+There are many options to the handler match logic - see message.match()
+
+Some features that the library will take care of for you:
+	* Responding to PINGs
+	* Parsing messages in a more intelligent way (more than just a list of params)
+	  For example, a MODE will give you a list of (mode, arg, + or -)
+	* Tracking ISUPPORT values (and using them, eg, to parse mode strings)
+	* Changing your nick safely
+	* Tracking what channels you are in
+	* Tracking what users are in those channels, and their prefix mode
+	* Reacting to forced NICK changes and channel JOINS from the server
+
+A basic example:
+
+from geventirc import Client
+
+nick = 'examplebot'
+client = Client('myhost', nick=nick)
+channel = client.channel('#mychan')
+
+channel.join()
+channel.msg("Hello")
+
+@client.add_handler(command='PRIVMSG', target=channel.name, message=lambda value: nick in value.lower())
+def mentioned(client, msg):
+	channel.msg("Hello, {}".format(msg.sender))
+
+client.start()
+client.join()
