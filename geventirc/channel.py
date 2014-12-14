@@ -21,7 +21,7 @@ class Channel(object):
 
 	joined = False
 	users_ready = gevent.event.Event()
-	userlist = None
+	users = None
 
 	def __init__(self, client, name):
 		self.client = client
@@ -29,17 +29,17 @@ class Channel(object):
 		self.client.add_handler(self._recv_part, command=Part, channels=lambda value: self.name in value)
 		self.client.add_handler(self._recv_end_of_names, command=replies.ENDOFNAMES, params=[None, self.name, None])
 
-	def join(self, block=True):
+	def join(self, block=False):
 		"""Join the channel if not already joined. If block=True, do not return until name list is received."""
 		if self.joined: return
 		self.joined = True
 		self.users_ready.clear()
-		self.userlist = UserList(self.client, self.name)
+		self.users = UserList(self.client, self.name)
 		self.client.send(Join(self.name))
 		if not block: return
 		self.users_ready.wait(self.USERS_READY_TIMEOUT)
 
-	def part(self, block=True):
+	def part(self, block=False):
 		"""Part from the channel if joined. If block=True, do not return until fully parted."""
 		if not self.joined: return
 		self.joined = False
@@ -47,7 +47,7 @@ class Channel(object):
 		def _part():
 			# we delay unregistering until the part is sent.
 			self.client.send(Part(self.name), block=True)
-			self.userlist.unregister()
+			self.users.unregister()
 		if block: _part.get()
 
 	def msg(self, content, block=False):
@@ -62,7 +62,7 @@ class Channel(object):
 	def _recv_part(self, client, msg):
 		# we receive a forced PART from the server
 		self.joined = False
-		self.userlist.unregister()
+		self.users.unregister()
 
 	def __enter__(self):
 		self.join()
