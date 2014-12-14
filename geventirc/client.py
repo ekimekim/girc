@@ -304,11 +304,23 @@ class Client(object):
 		if self.stopped:
 			return
 		self.stopped = True
+
 		# we spawn a child greenlet so things don't screw up if current greenlet is in self._group
 		def _stop():
+
 			self._group.kill()
 			for fn in self.stop_handlers:
 				fn(self)
+
+			# post-stop: we clear a few structures to break reference loops
+			# since they no longer make sense.
+			for channel in self._channels.values():
+				channel.client = None
+			self.message_handlers = None
+			# queues might contain some final messages
+			self._send_queue = None
+			self._recv_queue = None
+
 		gevent.spawn(_stop).join()
 
 	def msg(self, to, content, block=False):
