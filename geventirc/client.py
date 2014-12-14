@@ -14,6 +14,7 @@ from gevent import socket
 import message
 import replycodes
 from server_properties import ServerProperties
+from channel import Channel
 
 
 DEFAULT_PORT = 6667
@@ -45,6 +46,7 @@ class Client(object):
 		self.real_name = real_name or nick
 		self.local_hostname = local_hostname or socket.gethostname()
 		self.server_name = server_name or hostname
+		self._channels = {}
 
 		self._recv_queue = gevent.queue.Queue()
 		self._send_queue = gevent.queue.Queue()
@@ -127,6 +129,12 @@ class Client(object):
 				# sent before the NICK command was processed by the server, so we change our old value
 				# so further forced_nick_changes and matches_nick() still works.
 				self._nick = msg.nickname
+
+		@self.add_handler(command='JOIN', sender=self.matches_nick)
+		def forced_join(client, msg):
+			for name in msg.channels:
+				channel = self.channel(name)
+				channel._join()
 
 	@property
 	def nick(self):
@@ -288,8 +296,9 @@ class Client(object):
 			ret = handler(self, msg)
 		except Exception:
 			self.logger.exception("Handler {} failed".format(handler))
-		if ret:
-			self.rm_handler(handler)
+		else:
+			if ret:
+				self.rm_handler(handler)
 
 	def stop(self):
 		if self.stopped:
@@ -312,6 +321,14 @@ class Client(object):
 		message.Quit(self, msg).send()
 		if block:
 			self.wait_for_stop()
+
+	def channel(self, name):
+		"""Fetch a channel object, or create it if it doesn't exist.
+		Note that the channel is not joined automatically."""
+		name = self.normalize_channel(name)
+		if name not in self._channels:
+			Channel(self, name) # this will register itself into _channels
+		return self._channels[name]
 
 	def wait_for(self, **match_args):
 		"""Block until a message matching given args is received.

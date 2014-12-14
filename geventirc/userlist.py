@@ -1,9 +1,16 @@
 
-import re
-
 from geventirc import replycodes
-from geventirc.messages import Kick
+from geventirc.message import Kick
 
+# TODO case insensitive users
+
+# TODO track a user's presence in lesser modes so that a sequence like:
+#	+v foo
+#	+o foo
+#	-o foo
+# resolves to foo being in v, instead of '' like currently.
+
+# XXX track more info about a user, maybe over multiple channels
 
 class UserList(object):
 	"""Tracks users and their privilige levels.
@@ -41,9 +48,9 @@ class UserList(object):
 		"""Takes a client object and string channel name. Begins watching for relevant messages immediately."""
 		self.client = client
 		self.channel = channel
-		self.parse_prefix_str()
+		self.parse_prefixes()
 		self.client.add_handler(self.recv_user_list, command=replycodes.replies.NAMREPLY,
-		                        params=lambda params: len(params) > 1 and params[1] == channel)
+		                        params=lambda params: len(params) > 2 and params[2] == channel)
 		self.client.add_handler(self.user_join, command='JOIN',
 		                        channels=lambda channels: channel in channels)
 		self.client.add_handler(self.user_leave, command='PART',
@@ -53,22 +60,14 @@ class UserList(object):
 		self.client.add_handler(self.user_mode_change, command='MODE', target=channel)
 		self.client.add_handler(self.user_nick_change, command='NICK')
 
-	def parse_prefix_str(self):
-		prefix_str = self.client.server_properties['PREFIX']
-		match = re.match(r'^\(([a-z]+)\)(.*)$')
-		if not match:
-			raise Exception("Invalid PREFIX: {!r}".format(prefix_str))
-		modes, chars = match.groups()
-		if len(modes) != len(chars):
-			raise Exception("PREFIX contained mismatched parts: {} modes, {} chars".format(
-			                len(modes), len(chars)))
+	def parse_prefixes(self):
+		mode_pairs = self.client.server_properties.prefixes
 
 		# special "users" (nothing) mode
-		modes.append('')
-		chars.append('')
+		mode_pairs.append(('', ''))
 
-		self.modes = modes
-		self.prefix_map = dict(zip(chars, modes)) # prefix_map maps prefix chars to modes
+		self.modes = [mode for mode, prefix in mode_pairs]
+		self.prefix_map = {prefix: mode for mode, prefix in mode_pairs} # prefix_map maps prefix chars to modes
 		self._user_map = {mode: set() for mode in self.modes} # user_map maps modes to users
 
 	def _resolve_name(self, name):
@@ -127,25 +126,27 @@ class UserList(object):
 
 	# handlers
 
-	def recv_user_list(self, msg):
-		users = msg.params[2:]
+	def recv_user_list(self, client, msg):
+		users = msg.params[3:]
+		# it's unclear if user list is always one space-seperated param or not, let's normalize
+		users = ' '.join(users).split(' ')
 		for raw_user in users:
 			prefix, user = raw_user[0], raw_user[1:]
-			if prefix not in self.mode_map:
+			if prefix not in self.prefix_map:
 				# no prefix, normal user
 				prefix = ''
 				user = raw_user
-			mode = self.mode_map[prefix]
+			mode = self.prefix_map[prefix]
 			self._user_map[mode].add(user)
 
-	def user_join(self, msg):
+	def user_join(self, client, msg):
 		user = msg.sender
 		# we might or might not already have this user under a certain mode
 		# if not, we put them in users until they get MODEed
 		if user not in self.users:
 			self._user_map[''].add(user)
 
-	def user_leave(self, msg):
+	def user_leave(self, client, msg):
 		if isinstance(msg, Kick):
 			user = msg.nick
 		else:
@@ -154,33 +155,31 @@ class UserList(object):
 			if user in user_set:
 				user_set.remove(user)
 
-	def user_mode_change(self, msg):
-		user = msg.arg
+	def user_mode_change(self, client, msg):
+		for mode, user, adding in msg.modes:
+			if mode not in self.modes:
+				continue
 
-		# get highest mode in self.modes
-		for mode in self.modes:
-			# don't count '' as a mode here
-			if mode and mode in msg.flags:
-				break
-		else:
-			return # no recognized modes
+			assert user is not None, "MODE message parsed incorrectly: prefix mode {} has no param".format(mode)
 
-		user_set = self._user_map[mode]
-		if msg.remove:
-			if user in user_set:
-				user_set.remove(user)
-			# need to add back into basic users
-			self._user_map[''].add(user)
-			# XXX this could mean we've lost knowledge of a lesser mode
-		else:
-			user_set.add(user)
-			# need to remove from any lesser modes
-			for lesser_mode in self.modes[self.modes.index(mode):]:
-				lesser_set = self._user_set[lesser_mode]
-				if user in lesser_set:
-					lesser_set.remove(user)
+			try:
+				current = self.get_level(user)
+			except KeyError:
+				pass
+			else:
+				if adding and self.modes.index(current) <= self.modes.index(mode):
+					# user already holds equal or greater mode, ignore new mode
+					continue
+				# otherwise, remove the old mode (this applies for not adding or for adding a higher mode)
+				self._user_map[current].remove(user)
 
-	def user_nick_change(self, msg):
+			if adding:
+				self._user_map[mode].add(user)
+			else:
+				# XXX this could mean we've lost knowledge of a lesser mode
+				self._user_map[''].add(user)
+
+	def user_nick_change(self, client, msg):
 		old_nick = msg.sender
 		new_nick = msg.nickname
 		for user_set in self._user_map.values():

@@ -8,6 +8,8 @@ class ServerProperties(dotdict):
 	defaults = {
 		'CHANTYPES': '#',
 		'PREFIX': '(ov)@+',
+		'CHANMODES': 'biklmnst',
+		'CHANMODES': 'b,k,l,imnst',
 	}
 
 	def __getitem__(self, item):
@@ -29,6 +31,7 @@ class ServerProperties(dotdict):
 	@property
 	def channel_modes(self):
 		"""Returns a dict {mode: mode type}. See mode_type() for details."""
+
 		mode_lists = self.CHANMODES.split(',')
 		if len(mode_lists) != 4:
 			raise ValueError("Invalid format for CHANMODES: {!r}".format(self.CHANMODES))
@@ -36,6 +39,11 @@ class ServerProperties(dotdict):
 		for mode_list, mode_type in zip(mode_lists, ['list', 'param-unset', 'param', 'noparam']):
 			for mode in mode_list:
 				result[mode] = mode_type
+
+		# prefix modes are list modes
+		for mode, prefix in self.prefixes:
+			result[mode] = 'list'
+
 		return result
 
 	def mode_type(self, mode, user_modes=False):

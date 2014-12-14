@@ -6,7 +6,7 @@ import re
 import gevent
 
 from geventirc import replycodes
-from geventirc.common import classproperty, subclasses, iterable
+from geventirc.common import classproperty, subclasses, iterable, int_equals
 
 
 class InvalidMessage(Exception):
@@ -68,8 +68,9 @@ class MessageDispatchMeta(type):
 		return super(MessageDispatchMeta, self).__call__(client, *args, **kwargs)
 
 	def dispatch(self, client, command, *params, **kwargs):
+		command = command.upper()
 		for subcls in subclasses(Command):
-			if subcls.command == command:
+			if str(subcls.command).upper() == command or int_equals(subcls.command, command):
 				return subcls(client, params=params, **kwargs)
 		# no matching command, default to generic Message()
 		return super(MessageDispatchMeta, self).__call__(client, command, *params, **kwargs)
@@ -293,8 +294,8 @@ class Mode(Command):
 	@property
 	def modes(self):
 		"""List of (mode, arg, adding) for modes being changed. arg is None if no arg."""
-		target, modestr, args = self.params
-		args = args[:]
+		target, modestr = self.params[:2]
+		args = self.params[2:]
 		result = []
 		adding = True
 
@@ -310,7 +311,7 @@ class Mode(Command):
 					raise InvalidMessage(self.encode(), message)
 				param = args.pop(0)
 			# note we're not differentiating between "mode doesn't have param" and "mode unknown"
-			result.add((c, param, adding))
+			result.append((c, param, adding))
 
 		return result
 
@@ -408,13 +409,13 @@ class ISupport(Command):
 		# i'm lazy, and if you want this you're doing something weird
 		raise NotImplementedError("Client-side construction of ISUPPORT message is not supported")
 	@property
-	def properties(self, nick, *args):
+	def properties(self):
 		"""Returns server properties described by message as a dict.
 		Keys that are set without a value are given the value True.
 		Keys that are unset are given the value None.
 		NOTE: You generally do not want to handle this message directly,
 		instead use client.server_properties, which aggregates and provides helpers."""
-		args = args[1:-1] # first arg is nick, last arg is "are supported by this server"
+		args = self.params[1:-1] # first arg is nick, last arg is "are supported by this server"
 		# ISUPPORT args can have the following forms:
 		# -KEY[=VALUE] : unset KEY
 		# KEY[=] : set KEY true
@@ -490,9 +491,15 @@ def match(message, command=None, params=None, **attr_args):
 			commands = [command]
 		else:
 			commands = command
+
 		for command in commands:
+			# is command a Command subclass?
 			if isinstance(command, type) and issubclass(command, Command):
 				command = command.command
+			# is command an int?
+			if int_equals(command, message.command):
+				continue # it's a match
+			# finally, check str
 			command = str(command).upper()
 			if command != message.command:
 				return False

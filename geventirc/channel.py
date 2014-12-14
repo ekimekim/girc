@@ -10,6 +10,8 @@ class Channel(object):
 	"""Object representing an IRC channel.
 	This is the reccomended way to do operations like joins, or tracking user lists.
 
+	Note that you should use client.channel() to get a channel object, not Channel().
+
 	A channel may be join()ed and part()ed multiple times.
 	The user list will be the most recent info available, or None before first join.
 	In particular, the user list can be considered up to date iff users_ready is set.
@@ -25,19 +27,26 @@ class Channel(object):
 
 	def __init__(self, client, name):
 		self.client = client
-		self.name = name
+		self.name = client.normalize_channel(name)
+		self.client._channels[self.name] = self
 		self.client.add_handler(self._recv_part, command=Part, channels=lambda value: self.name in value)
 		self.client.add_handler(self._recv_end_of_names, command=replies.ENDOFNAMES, params=[None, self.name, None])
 
 	def join(self, block=False):
 		"""Join the channel if not already joined. If block=True, do not return until name list is received."""
 		if self.joined: return
+		self.client.send(Join(self.name))
+		self._join()
+		if not block: return
+		self.users_ready.wait(self.USERS_READY_TIMEOUT)
+
+	def _join(self):
+		"""This method covers the actions that need to be taken when a channel is joined,
+		but does not actually join the channel. It is intended for use when the server automatically
+		joins the client to a channel."""
 		self.joined = True
 		self.users_ready.clear()
 		self.users = UserList(self.client, self.name)
-		self.client.send(Join(self.name))
-		if not block: return
-		self.users_ready.wait(self.USERS_READY_TIMEOUT)
 
 	def part(self, block=False):
 		"""Part from the channel if joined. If block=True, do not return until fully parted."""
