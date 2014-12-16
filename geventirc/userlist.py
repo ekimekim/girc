@@ -116,7 +116,7 @@ class UserList(object):
 	def get_level(self, user):
 		"""Return the mode of given user, or raise KeyError"""
 		for mode, user_set in self._user_map.items():
-			if user in user_set:
+			if user.lower() in user_set:
 				return mode
 		raise KeyError(user)
 
@@ -137,10 +137,10 @@ class UserList(object):
 				prefix = ''
 				user = raw_user
 			mode = self.prefix_map[prefix]
-			self._user_map[mode].add(user)
+			self._user_map[mode].add(user.lower())
 
 	def user_join(self, client, msg):
-		user = msg.sender
+		user = msg.sender.lower()
 		# we might or might not already have this user under a certain mode
 		# if not, we put them in users until they get MODEed
 		if user not in self.users:
@@ -151,6 +151,7 @@ class UserList(object):
 			user = msg.nick
 		else:
 			user = msg.sender
+		user = user.lower()
 		for user_set in self._user_map.values():
 			if user in user_set:
 				user_set.remove(user)
@@ -161,6 +162,7 @@ class UserList(object):
 				continue
 
 			assert user is not None, "MODE message parsed incorrectly: prefix mode {} has no param".format(mode)
+			user = user.lower()
 
 			try:
 				current = self.get_level(user)
@@ -180,8 +182,8 @@ class UserList(object):
 				self._user_map[''].add(user)
 
 	def user_nick_change(self, client, msg):
-		old_nick = msg.sender
-		new_nick = msg.nickname
+		old_nick = msg.sender.lower()
+		new_nick = msg.nickname.lower()
 		for user_set in self._user_map.values():
 			if old_nick in user_set:
 				user_set.remove(old_nick)
