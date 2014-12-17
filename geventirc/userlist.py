@@ -99,11 +99,16 @@ class UserList(object):
 		return result
 
 	def only(self, mode):
-		"""Return only users that match this mode exactly (friendly names allowed)"""
+		"""Return only users whose highest mode is this mode exactly (friendly names allowed)"""
 		_mode = self._resolve_name(mode)
 		if _mode is None:
 			raise ValueError("Unknown mode: {}".format(mode))
-		return self._user_map[_mode]
+		index = self.modes.index(_mode)
+		higher_mode = self.modes[index - 1] if index > 0 else None
+		result = self[mode]
+		if higher_mode is not None:
+			result -= self[higher_mode]
+		return result
 
 	def below(self, mode):
 		"""Return all users that are less priviliged than this mode (friendly names allowed)"""
@@ -130,21 +135,25 @@ class UserList(object):
 		users = msg.params[3:]
 		# it's unclear if user list is always one space-seperated param or not, let's normalize
 		users = ' '.join(users).split(' ')
-		for raw_user in users:
-			prefix, user = raw_user[0], raw_user[1:]
-			if prefix not in self.prefix_map:
-				# no prefix, normal user
-				prefix = ''
-				user = raw_user
-			mode = self.prefix_map[prefix]
-			self._user_map[mode].add(user.lower())
+		for user in users:
+			modes = set('')
+			while True:
+				for prefix in self.prefix_map:
+					# look for the prefix that user begins with, not including ''
+					if not user.startswith(prefix) or not prefix:
+						continue
+					modes.add(self.prefix_map[prefix])
+					user = user[1:]
+					break
+				else:
+					# no prefixes found, finish
+					break
+			for mode in modes:
+				self._user_map[mode].add(user.lower())
 
 	def user_join(self, client, msg):
 		user = msg.sender.lower()
-		# we might or might not already have this user under a certain mode
-		# if not, we put them in users until they get MODEed
-		if user not in self.users:
-			self._user_map[''].add(user)
+		self._user_map[''].add(user)
 
 	def user_leave(self, client, msg):
 		if isinstance(msg, Kick):
@@ -152,6 +161,7 @@ class UserList(object):
 		else:
 			user = msg.sender
 		user = user.lower()
+		# remove from all modes
 		for user_set in self._user_map.values():
 			if user in user_set:
 				user_set.remove(user)
@@ -164,22 +174,12 @@ class UserList(object):
 			assert user is not None, "MODE message parsed incorrectly: prefix mode {} has no param".format(mode)
 			user = user.lower()
 
-			try:
-				current = self.get_level(user)
-			except KeyError:
-				pass
-			else:
-				if adding and self.modes.index(current) <= self.modes.index(mode):
-					# user already holds equal or greater mode, ignore new mode
-					continue
-				# otherwise, remove the old mode (this applies for not adding or for adding a higher mode)
-				self._user_map[current].remove(user)
-
 			if adding:
 				self._user_map[mode].add(user)
-			else:
-				# XXX this could mean we've lost knowledge of a lesser mode
-				self._user_map[''].add(user)
+			elif user in self._user_map[mode]:
+				self._user_map[mode].remove(user)
+				# XXX It's possible that user holds a lesser mode and we don't know (as 353 list only gives
+				#     us their highest mode) - maybe trigger a NAMES or a WHOIS?
 
 	def user_nick_change(self, client, msg):
 		old_nick = msg.sender.lower()
