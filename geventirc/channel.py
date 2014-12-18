@@ -13,7 +13,7 @@ class Channel(object):
 	Note that you should use client.channel() to get a channel object, not Channel().
 
 	A channel may be join()ed and part()ed multiple times.
-	The user list will be the most recent info available, or None before first join.
+	The user list will be the most recent info available.
 	In particular, the user list can be considered up to date iff users_ready is set.
 
 	Can be used in a with statement to join then part.
@@ -45,7 +45,6 @@ class Channel(object):
 		but does not actually join the channel. It is intended for use when the server automatically
 		joins the client to a channel."""
 		self.joined = True
-		self.users_ready.clear()
 		self.users = UserList(self.client, self.name)
 
 	def part(self, block=False):
@@ -56,6 +55,7 @@ class Channel(object):
 		def _part():
 			# we delay unregistering until the part is sent.
 			self.client.send(Part(self.name), block=True)
+			self.users_ready.clear()
 			self.users.unregister()
 		if block: _part.get()
 

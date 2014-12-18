@@ -3,6 +3,7 @@ import logging
 import errno
 import string
 import random
+import weakref
 from collections import defaultdict
 
 import gevent.queue
@@ -28,11 +29,10 @@ class Client(object):
 	WAIT_FOR_MESSAGES_TIMEOUT = 10
 
 	def __init__(self, hostname, nick, port=DEFAULT_PORT, password=None,
-		         local_hostname=None, server_name=None, real_name=None,
-		         stop_handler=[], logger=None):
+		         ident=None, real_name=None, stop_handler=[], logger=None):
 		"""Create a new IRC connection to given host and port.
-		local_hostname, server_name and real_name are optional args
-			that control how we report ourselves to the server
+		ident and real_name are optional args that control how we report ourselves to the server
+		(they both default to nick).
 		nick is the initial nick we set, though of course that can be changed later
 		stop_handler is a callback that will be called upon the client exiting for any reason
 			The callback should take one arg - this client.
@@ -43,10 +43,10 @@ class Client(object):
 		self.hostname = hostname
 		self.port = port
 		self.password = password
+		self.ident = ident or nick
 		self.real_name = real_name or nick
-		self.local_hostname = local_hostname or socket.gethostname()
-		self.server_name = server_name or hostname
 		self._channels = {}
+		self._users = weakref.WeakValueDictionary()
 
 		self._recv_queue = gevent.queue.Queue()
 		self._send_queue = gevent.queue.Queue()
@@ -86,7 +86,7 @@ class Client(object):
 		if self.password:
 			message.Pass(self, self.password).send()
 		message.Nick(self, self.nick).send()
-		message.User(self, self.nick, self.local_hostname, self.server_name, self.real_name).send()
+		message.User(self, self.ident, self.real_name).send()
 
 		# default handlers
 
@@ -316,6 +316,8 @@ class Client(object):
 			# since they no longer make sense.
 			for channel in self._channels.values():
 				channel.client = None
+			for user in self._users.values():
+				user.client = None
 			self.message_handlers = None
 			# queues might contain some final messages
 			self._send_queue = None

@@ -183,17 +183,12 @@ class Nick(Command):
 		return self.params[0]
 
 class User(Command):
-	def from_args(self, username, hostname, servername, realname):
-		return username, hostname, servername, realname
+	def from_args(self, username, realname):
+		# second and third params are unused, send 0
+		return username, '0', '0', realname
 	@property
 	def username(self):
 		return self.params[0]
-	@property
-	def hostname(self):
-		return self.params[1]
-	@property
-	def servername(self):
-		return self.params[2]
 	@property
 	def realname(self):
 		return self.params[3]
