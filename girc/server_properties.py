@@ -1,6 +1,6 @@
 import re
 
-from common import dotdict
+from girc.common import dotdict
 
 class ServerProperties(dotdict):
 	"""A dict containing server properties, but with some defaults and pre-processing."""

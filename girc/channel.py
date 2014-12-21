@@ -1,9 +1,9 @@
 
 import gevent
 
-from geventirc.message import Join, Part, Privmsg
-from geventirc.replycodes import replies
-from geventirc.userlist import UserList
+from girc.message import Join, Part, Privmsg
+from girc.replycodes import replies
+from girc.userlist import UserList
 
 
 class Channel(object):

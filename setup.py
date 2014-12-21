@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 
-setup(name="geventirc",
+setup(name="girc",
       version="0.0.1",
       author="ekimekim",
       author_email="mikelang3000@gmail.com",

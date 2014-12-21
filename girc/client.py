@@ -12,10 +12,10 @@ import gevent.event
 import gevent.lock
 from gevent import socket
 
-import message
-import replycodes
-from server_properties import ServerProperties
-from channel import Channel
+from girc import message
+from girc import replycodes
+from girc.server_properties import ServerProperties
+from girc.channel import Channel
 
 
 DEFAULT_PORT = 6667

@@ -5,8 +5,8 @@ import re
 
 import gevent
 
-from geventirc import replycodes
-from geventirc.common import classproperty, subclasses, iterable, int_equals
+from girc import replycodes
+from girc.common import classproperty, subclasses, iterable, int_equals
 
 
 class InvalidMessage(Exception):

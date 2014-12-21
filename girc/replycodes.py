@@ -1,4 +1,4 @@
-from common import dotdict
+from girc.common import dotdict
 
 errors = dotdict(
 	NOSUCHNICK = 401,

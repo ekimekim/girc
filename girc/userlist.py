@@ -1,6 +1,6 @@
 
-from geventirc import replycodes
-from geventirc.message import Kick
+from girc import replycodes
+from girc.message import Kick
 
 # TODO case insensitive users
 
