@@ -131,25 +131,46 @@ class UserList(object):
 
 	# handlers
 
+	def recv_user_prefix(self, user):
+		"""Generic function for any case where we are told "{prefix}{user}".
+		Note that this is partial information, as only the highest mode is visible
+		(unless multiprefix is enabled)."""
+		modes = set('')
+		user = user.lower()
+
+		while True:
+			for prefix in self.prefix_map:
+				# look for the prefix that user begins with, not including ''
+				if not user.startswith(prefix) or not prefix:
+					continue
+				modes.add(self.prefix_map[prefix])
+				user = user[1:]
+				break
+			else:
+				# no prefixes found, finish
+				break
+
+		try:
+			old_rank = self.modes.index(self.get_level(user))
+		except KeyError:
+			pass
+		else:
+			rank = min(map(self.modes.index, modes))
+			if old_rank < rank:
+				# user has been downgraded - eliminate all greater modes
+				for mode in self.mode[:rank]:
+					if user in self._user_map[mode]:
+						self._user_map[mode].remove(user)
+
+		for mode in modes:
+			self._user_map[mode].add(user)
+
 	def recv_user_list(self, client, msg):
 		users = msg.params[3:]
 		# it's unclear if user list is always one space-seperated param or not, let's normalize
 		users = ' '.join(users).split(' ')
 		for user in users:
-			modes = set('')
-			while True:
-				for prefix in self.prefix_map:
-					# look for the prefix that user begins with, not including ''
-					if not user.startswith(prefix) or not prefix:
-						continue
-					modes.add(self.prefix_map[prefix])
-					user = user[1:]
-					break
-				else:
-					# no prefixes found, finish
-					break
-			for mode in modes:
-				self._user_map[mode].add(user.lower())
+			self.recv_user_prefix(user)
 
 	def user_join(self, client, msg):
 		user = msg.sender.lower()

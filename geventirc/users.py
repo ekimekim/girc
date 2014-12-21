@@ -78,7 +78,34 @@ def register_handlers(client):
 	def whois_oper(user, *junk):
 		user.operator = True
 
-	# TODO UPTO
+	@command(replies.WHOISCHANNELS)
+	@with_user
+	def whois_channels(user, *channels):
+		# channels is normally one space-seperated arg, but might be seperate args - normalize
+		channels = (' '.join(channels)).split(' ')
+		all_prefixes = [prefix for mode, prefix in client.server_properties.prefixes]
+		for name in channels:
+			prefixes = ''
+			while any(name.startswith(prefix) for prefix in all_prefixes if prefix):
+				prefixes += name[0]
+				name = name[1:]
+			client.channel(name).users.recv_user_prefix(prefixes + user.nick)
+
+	@command(replies.WHOISSECURE)
+	@with_user
+	def whois_secure(user, *junk):
+		user.secure = True
+
+	@command(replies.WHOISACCOUNT)
+	@with_user
+	def whois_account(user, account, *junk):
+		user.account = account
+
+	@command(replies.WHOISMETADATA)
+	@with_user
+	def whois_metadata(user, key, value):
+		category, key = key.split('.', 1)
+		user.setdefault('category', {})[key] = value
 
 """
 info on whois responses
