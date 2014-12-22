@@ -101,7 +101,7 @@ def register_handlers(client):
 	def whois_account(user, account, *junk):
 		user.account = account
 
-	@command(replies.WHOISMETADATA)
+	@command(replies.WHOISKEYVALUE)
 	@with_user
 	def whois_metadata(user, key, value):
 		category, key = key.split('.', 1)
@@ -119,5 +119,5 @@ not all servers send all responses
 319 WHOISCHANNELS nick (all one arg: space-seperated channels with optional prefix indicating user's rank in channel)
 330 WHOISACCOUNT nick account _
 671 WHOISSECURE nick (security type) [_]
-760 ??? nick metadata_category.key value # non-standard?
+760 WHOISKEYVALUE nick metadata_category.key value
 """
