@@ -1,5 +1,6 @@
 
 from girc import message
+from girc.common import iterable
 
 
 class HandlerMergeMeta(type):
@@ -17,6 +18,13 @@ class Handler(object):
 	It wraps the callback with additional metadata governing matches.
 	It is normally registered to a client automatically at init time, or you can manually register it later
 	with handler.register(client).
+
+	You can set before and after kwargs with other handlers (or lists of handlers) to control the order in which
+	handlers are executed.
+	You can also set sync=True to specify that the client should not process the next message until this handler
+	has finished.
+	(In truth, sync=True is just a shortcut for before='sync'.
+	 after='sync' is also valid, though likely not useful.)
 
 	To support its use as a decorator for methods of a class, it will bind to a class instance on __get__
 	just like a function object. In addition, if you do instance.handler.register(client), then any callbacks
@@ -37,7 +45,7 @@ class Handler(object):
 			callback.register(client)
 	"""
 
-	def __init__(self, client=None, callback=None, **match_args):
+	def __init__(self, client=None, callback=None, before=[], after=[], sync=False, **match_args):
 		"""Register a handler for client to call when a message matches.
 		Match args are as per message.match()
 		Callback should take args (client, message) and may return True to de-register itself.
@@ -48,6 +56,11 @@ class Handler(object):
 		"""
 		self.match_list = [] # list of match_args dicts to match on
 		self.client_binds = {} # maps {client: set(instances to bind and call)}
+
+		self.before = set(before) if iterable(before) else [before]
+		self.after = set(after) if iterable(after) else [after]
+		if sync:
+			self.before.add('sync')
 
 		self.add_match(**match_args)
 		self.set_callback(callback)
@@ -101,7 +114,12 @@ class Handler(object):
 		return BoundHandler(self, instance)
 
 	def handle(self, client, msg):
-		if not any(message.match(msg, **match_args) for match_args in self.match_list):
+		try:
+			if not any(message.match(msg, **match_args) for match_args in self.match_list):
+				return
+		except message.InvalidMessage:
+			client.logger.warning("Problem with message {} while matching handler {}".format(msg, self),
+			                      exc_info=True)
 			return
 		if not self.callback:
 			return
@@ -111,7 +129,7 @@ class Handler(object):
 				ret = self.callback(instance, client, msg) if instance else self.callback(client, msg)
 			except Exception:
 				client.logger.exception("Handler {} failed{}".format(
-				                             self, (' for instance {}'.format(instance) if instance else '')))
+				                        self, (' for instance {}'.format(instance) if instance else '')))
 			else:
 				if ret:
 					self.unregister(client, instance)

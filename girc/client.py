@@ -270,12 +270,49 @@ class Client(object):
 			return
 		try:
 			msg = message.decode(line, self)
-			self.logger.debug("Getting handlers for message: {}".format(msg))
-			for handler in self.message_handlers.copy():
-				handler.handle(self, msg)
 		except message.InvalidMessage:
-			logging.warning("Could not decode message from server: {!r}".format(line), exc_info=True)
+			self.logger.warning("Could not decode message from server: {!r}".format(line), exc_info=True)
 			return
+		self.logger.debug("Getting handlers for message: {}".format(msg))
+		self._dispatch_handlers(msg)
+
+	def _dispatch_handlers(self, msg):
+		"""Carefully builds a set of greenlets for all message handlers, obeying ordering metadata for each handler.
+		Returns when all sync=True handlers have been executed."""
+		# build dependency graph
+		graph = {handler: set() for handler in self.message_handlers}
+		graph['sync'] = set()
+		for handler in self.message_handlers:
+			for other in handler.after:
+				if other in graph:
+					graph[handler].add(other)
+			for other in handler.before:
+				if other in graph:
+					graph[other].add(handler)
+		# check for cycles
+		def check_cycles(handler, chain=()):
+			if handler in chain:
+				chain_text = " -> ".join(map(str, chain + (handler,)))
+				raise ValueError("Dependency cycle in handlers: {}".format(chain_text))
+			chain += handler,
+			for dep in graph[handler]:
+				check_cycles(dep, chain)
+		for handler in graph:
+			check_cycles(handler)
+		# set up the greenlets
+		greenlets = {}
+		def wait_and_handle(handler):
+			for dep in graph[handler]:
+				greenlets[dep].join()
+			return handler.handle(self, msg)
+		def wait_for_sync():
+			for dep in graph['sync']:
+				greenlets[dep].join()
+		for handler in self.message_handlers:
+			greenlets[handler] = self._group.spawn(wait_and_handle, handler)
+		greenlets['sync'] = self._group.spawn(wait_for_sync)
+		# wait for sync to finish
+		greenlets['sync'].get()
 
 	def stop(self):
 		if self.stopped:
