@@ -159,8 +159,7 @@ class UserList(object):
 			if old_rank < rank:
 				# user has been downgraded - eliminate all greater modes
 				for mode in self.mode[:rank]:
-					if user in self._user_map[mode]:
-						self._user_map[mode].remove(user)
+					self._user_map[mode].discard(user)
 
 		for mode in modes:
 			self._user_map[mode].add(user)
@@ -184,8 +183,7 @@ class UserList(object):
 		user = user.lower()
 		# remove from all modes
 		for user_set in self._user_map.values():
-			if user in user_set:
-				user_set.remove(user)
+			user_set.discard(user)
 
 	def user_mode_change(self, client, msg):
 		for mode, user, adding in msg.modes:
@@ -197,8 +195,8 @@ class UserList(object):
 
 			if adding:
 				self._user_map[mode].add(user)
-			elif user in self._user_map[mode]:
-				self._user_map[mode].remove(user)
+			else:
+				self._user_map[mode].discard(user)
 				# XXX It's possible that user holds a lesser mode and we don't know (as 353 list only gives
 				#     us their highest mode) - maybe trigger a NAMES or a WHOIS?
 

@@ -75,9 +75,7 @@ class Handler(object):
 		# unless it is the last bind for that client.
 		if client not in self.client_binds:
 			return
-		if instance not in self.client_binds[client]:
-			return
-		self.client_binds[client].remove(instance)
+		self.client_binds[client].discard(instance)
 		if not self.client_binds[client]:
 			client.message_handlers.discard(self)
 			del self.client_binds[client]
