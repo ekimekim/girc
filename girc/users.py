@@ -49,8 +49,8 @@ def register_handlers(client):
 	"""Register handlers for given client to capture user info"""
 
 	def command(name):
-		"""Shortcut for client.add_handler(command=name)"""
-		return client.add_handler(command=name)
+		"""Shortcut for client.handler(command=name)"""
+		return client.handler(command=name)
 
 	def with_user(fn):
 		"""Helper decorator for handlers, takes first arg of msg and gets User() for that nick.

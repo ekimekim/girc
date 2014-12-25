@@ -4,7 +4,6 @@ import errno
 import string
 import random
 import weakref
-from collections import defaultdict
 
 import gevent.queue
 import gevent.pool
@@ -14,6 +13,7 @@ from gevent import socket
 
 from girc import message
 from girc import replycodes
+from girc.handler import Handler
 from girc.server_properties import ServerProperties
 from girc.channel import Channel
 
@@ -51,9 +51,7 @@ class Client(object):
 		self._recv_queue = gevent.queue.Queue()
 		self._send_queue = gevent.queue.Queue()
 		self._group = gevent.pool.Group()
-		self.message_handlers = defaultdict(list) # maps handler to set of registered match_args
-		                                          # we use list instead of set because dicts aren't hashable
-		                                          # and this was the easist workaround
+		self.message_handlers = set() # set of Handler objects
 		self.stop_handlers = set()
 		self.server_properties = ServerProperties()
 
@@ -90,15 +88,15 @@ class Client(object):
 
 		# default handlers
 
-		@self.add_handler(command=message.ISupport)
+		@self.handler(command=message.ISupport)
 		def recv_support(client, msg):
 			self.server_properties.update(msg.properties)
 
-		@self.add_handler(command=message.Ping)
+		@self.handler(command=message.Ping)
 		def on_ping(client, msg):
 			message.Pong(client, msg.payload).send()
 
-		@self.add_handler(command=replycodes.errors.NICKNAMEINUSE)
+		@self.handler(command=replycodes.errors.NICKNAMEINUSE)
 		def nick_in_use(client, msg):
 			bad_nick = msg.params[0]
 			if self._new_nick:
@@ -119,7 +117,7 @@ class Client(object):
 					return
 				self.nick = self.increment_nick(self._nick)
 
-		@self.add_handler(command='NICK', sender=self.matches_nick)
+		@self.handler(command='NICK', sender=self.matches_nick)
 		def forced_nick_change(client, msg):
 			if msg.sender == self._new_nick:
 				# we are changing, and this was sent after our change was recieved so we must respect it.
@@ -130,7 +128,7 @@ class Client(object):
 				# so further forced_nick_changes and matches_nick() still works.
 				self._nick = msg.nickname
 
-		@self.add_handler(command='JOIN', sender=self.matches_nick)
+		@self.handler(command='JOIN', sender=self.matches_nick)
 		def forced_join(client, msg):
 			for name in msg.channels:
 				channel = self.channel(name)
@@ -172,35 +170,25 @@ class Client(object):
 		"""
 		return value in (self._nick, self._new_nick)
 
-	def add_handler(self, callback=None, **match_args):
+	def handler(self, callback=None, **match_args):
 		"""Add callback to be called upon a matching message being received.
 		See geventirc.message.match() for match_args.
 		Callback should take args (client, message) and may return True to de-register itself.
-		If callback is already registered, it will trigger on either the new match_args or the existing ones.
 
 		If callback is not given, returns a decorator.
 		ie.
 			def foo(client, message):
 				...
-			client.add_handler(foo, **match_args)
+			client.handler(foo, **match_args)
 		is identical to
-			@client.add_handler(**match_args)
+			@client.handler(**match_args)
 			def foo(client, message):
 				...
+
+		For more detail, see handler.Handler()
+		This function simply creates a Handler() and immediately registers it with this client.
 		"""
-		def _add_handler(callback):
-			self.logger.info("Registering handler {} with match args {}".format(callback, match_args))
-			self.message_handlers[callback].append(match_args)
-			return callback
-
-		if callback is None:
-			return _add_handler
-		_add_handler(callback)
-
-	def rm_handler(self, handler):
-		"""Remove the given handler, if it is registered."""
-		if handler in self.message_handlers:
-			del self.message_handlers[handler]
+		return Handler(client=self, callback=callback, **match_args)
 
 	def _send(self, message, callback):
 		"""A low level interface to send a message. You normally want to use Message.send() instead.
@@ -282,23 +270,12 @@ class Client(object):
 			return
 		try:
 			msg = message.decode(line, self)
-			self.logger.debug("Handling message: {}".format(msg))
-			for handler, match_arg_set in self.message_handlers.items():
-				if any(message.match(msg, **match_args) for match_args in match_arg_set):
-					self._handler_wrapper(handler, msg)
+			self.logger.debug("Getting handlers for message: {}".format(msg))
+			for handler in self.message_handlers.copy():
+				handler.handle(self, msg)
 		except message.InvalidMessage:
 			logging.warning("Could not decode message from server: {!r}".format(line), exc_info=True)
 			return
-
-	def _handler_wrapper(self, handler, msg):
-		self.logger.debug("Calling handler {} with message: {}".format(handler, msg))
-		try:
-			ret = handler(self, msg)
-		except Exception:
-			self.logger.exception("Handler {} failed".format(handler))
-		else:
-			if ret:
-				self.rm_handler(handler)
 
 	def stop(self):
 		if self.stopped:
@@ -318,7 +295,8 @@ class Client(object):
 				channel.client = None
 			for user in self._users.values():
 				user.client = None
-			self.message_handlers = None
+			for handler in self.message_handlers.copy():
+				handler.unregister_all(self)
 			# queues might contain some final messages
 			self._send_queue = None
 			self._recv_queue = None
@@ -349,7 +327,7 @@ class Client(object):
 		The matching message is returned.
 		See geventirc.message.match() for match_args"""
 		result = gevent.event.AsyncResult()
-		@self.add_handler(**match_args)
+		@self.handler(**match_args)
 		def wait_callback(self, msg):
 			result.set(msg)
 			return True # unregister
@@ -374,7 +352,7 @@ class Client(object):
 		received = gevent.event.Event()
 		def match_payload(params):
 			return any(value.lower() == payload for value in params)
-		@self.add_handler(command=message.Pong, params=match_payload)
+		@self.handler(command=message.Pong, params=match_payload)
 		def on_pong(client, msg):
 			received.set()
 			return True # unregister

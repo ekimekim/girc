@@ -4,11 +4,12 @@ so that the user doesn't have to.
 This was originally based on http://github/gwik/geventirc, however it has diverged signifigantly since then.
 
 The primary means by which a user reacts to messages is using the message handler system:
-	@client.add_handler(command='PRIVMSG', sender='#mychan')
+	@client.handler(command='PRIVMSG', sender='#mychan')
 	def chan_message(client, msg):
 		...
 
 There are many options to the handler match logic - see message.match()
+See also handler.Handler() for advanced handler usage.
 
 Some features that the library will take care of for you:
 	* Responding to PINGs
@@ -31,7 +32,7 @@ channel = client.channel('#mychan')
 channel.join()
 channel.msg("Hello")
 
-@client.add_handler(command='PRIVMSG', payload=lambda value: nick in value.lower())
+@client.handler(command='PRIVMSG', payload=lambda value: nick in value.lower())
 def mentioned(client, msg):
 	channel.msg("Hello, {}".format(msg.sender))
 

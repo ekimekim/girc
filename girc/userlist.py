@@ -49,16 +49,16 @@ class UserList(object):
 		self.client = client
 		self.channel = channel
 		self.parse_prefixes()
-		self.client.add_handler(self.recv_user_list, command=replycodes.replies.NAMREPLY,
+		self.client.handler(self.recv_user_list, command=replycodes.replies.NAMREPLY,
 		                        params=lambda params: len(params) > 2 and params[2] == channel)
-		self.client.add_handler(self.user_join, command='JOIN',
+		self.client.handler(self.user_join, command='JOIN',
 		                        channels=lambda channels: channel in channels)
-		self.client.add_handler(self.user_leave, command='PART',
+		self.client.handler(self.user_leave, command='PART',
 		                        channels=lambda channels: channel in channels)
-		self.client.add_handler(self.user_leave, command='KICK', channel=channel)
-		self.client.add_handler(self.user_leave, command='QUIT')
-		self.client.add_handler(self.user_mode_change, command='MODE', target=channel)
-		self.client.add_handler(self.user_nick_change, command='NICK')
+		self.client.handler(self.user_leave, command='KICK', channel=channel)
+		self.client.handler(self.user_leave, command='QUIT')
+		self.client.handler(self.user_mode_change, command='MODE', target=channel)
+		self.client.handler(self.user_nick_change, command='NICK')
 
 	def parse_prefixes(self):
 		mode_pairs = self.client.server_properties.prefixes
