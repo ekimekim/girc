@@ -103,6 +103,11 @@ class Handler(object):
 			return self
 		return BoundHandler(self, instance)
 
+	def _handle(self, client, msg, instance=None):
+		"""subclasses can hook here to customise how the callback is called without changing the behaviour
+		of a naive __call__."""
+		return self(instance, client, msg) if instance else self(client, msg)
+
 	def handle(self, client, msg):
 		try:
 			if not any(message.match(msg, **match_args) for match_args in self.match_list):
@@ -116,7 +121,7 @@ class Handler(object):
 		client.logger.debug("Handling message {} with handler {}".format(msg, self))
 		for instance in self.client_binds.get(client, set()).copy():
 			try:
-				ret = self(instance, client, msg) if instance else self(client, msg)
+				ret = self._handle(client, msg, instance=instance)
 			except Exception:
 				client.logger.exception("Handler {} failed{}".format(
 				                        self, (' for instance {}'.format(instance) if instance else '')))
