@@ -3,16 +3,6 @@ from girc import message
 from girc.common import iterable
 
 
-class HandlerMergeMeta(type):
-	def __call__(self, client=None, callback=None, **match_args):
-		if isinstance(callback, Handler):
-			if client:
-				callback.register(client)
-			callback.add_match(**match_args)
-			return callback
-		return super(HandlerMergeMeta, self).__call__(self, client, callback, **match_args)
-
-
 class Handler(object):
 	"""A handler object manages a handler callback.
 	It wraps the callback with additional metadata governing matches.
