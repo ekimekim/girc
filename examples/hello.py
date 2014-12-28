@@ -14,7 +14,7 @@ channel = client.channel('#desertbus')
 channel.join()
 channel.msg("Hello world!")
 
-@client.add_handler(command='PRIVMSG', payload=lambda value: nick in value.lower())
+@client.handler(command='PRIVMSG', payload=lambda value: nick in value.lower())
 def mentioned(client, msg):
 	channel.msg("Hello, {}!".format(msg.sender))
 
