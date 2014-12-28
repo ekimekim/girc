@@ -126,7 +126,7 @@ class Handler(object):
 		client.logger.debug("Handling message {} with handler {}".format(msg, self))
 		for instance in self.client_binds.get(client, set()).copy():
 			try:
-				ret = self.callback(instance, client, msg) if instance else self.callback(client, msg)
+				ret = self(instance, client, msg) if instance else self(client, msg)
 			except Exception:
 				client.logger.exception("Handler {} failed{}".format(
 				                        self, (' for instance {}'.format(instance) if instance else '')))
