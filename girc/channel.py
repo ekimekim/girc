@@ -29,8 +29,8 @@ class Channel(object):
 		self.client = client
 		self.name = client.normalize_channel(name)
 		self.client._channels[self.name] = self
-		self.client.handler(self._recv_part, command=Part, channels=lambda value: self.name in value)
-		self.client.handler(self._recv_end_of_names, command=replies.ENDOFNAMES, params=[None, self.name, None])
+		self.client.handler(self._recv_part, command=Part, channels=lambda value: self.name in value, sync=True)
+		self.client.handler(self._recv_end_of_names, command=replies.ENDOFNAMES, params=[None, self.name, None], sync=True)
 
 	def join(self, block=False):
 		"""Join the channel if not already joined. If block=True, do not return until name list is received."""

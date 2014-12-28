@@ -88,7 +88,7 @@ class Client(object):
 
 		# default handlers
 
-		@self.handler(command=message.ISupport)
+		@self.handler(command=message.ISupport, sync=True)
 		def recv_support(client, msg):
 			self.server_properties.update(msg.properties)
 
@@ -96,7 +96,7 @@ class Client(object):
 		def on_ping(client, msg):
 			message.Pong(client, msg.payload).send()
 
-		@self.handler(command=replycodes.errors.NICKNAMEINUSE)
+		@self.handler(command=replycodes.errors.NICKNAMEINUSE, sync=True)
 		def nick_in_use(client, msg):
 			bad_nick = msg.params[0]
 			if self._new_nick:
@@ -117,7 +117,7 @@ class Client(object):
 					return
 				self.nick = self.increment_nick(self._nick)
 
-		@self.handler(command='NICK', sender=self.matches_nick)
+		@self.handler(command='NICK', sender=self.matches_nick, sync=True)
 		def forced_nick_change(client, msg):
 			if msg.sender == self._new_nick:
 				# we are changing, and this was sent after our change was recieved so we must respect it.
@@ -128,7 +128,7 @@ class Client(object):
 				# so further forced_nick_changes and matches_nick() still works.
 				self._nick = msg.nickname
 
-		@self.handler(command='JOIN', sender=self.matches_nick)
+		@self.handler(command='JOIN', sender=self.matches_nick, sync=True)
 		def forced_join(client, msg):
 			for name in msg.channels:
 				channel = self.channel(name)
