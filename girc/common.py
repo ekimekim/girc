@@ -53,7 +53,10 @@ def iterable(obj):
 
 class dotdict(dict):
 	def __getattr__(self, attr):
-		return self[attr]
+		try:
+			return self[attr]
+		except KeyError:
+			raise AttributeError(attr)
 	def __setattr__(self, attr, value):
 		self[attr] = value
 	def __hasattr__(self, attr):
