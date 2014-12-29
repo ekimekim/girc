@@ -135,7 +135,7 @@ class UserList(object):
 		"""Generic function for any case where we are told "{prefix}{user}".
 		Note that this is partial information, as only the highest mode is visible
 		(unless multiprefix is enabled)."""
-		modes = set('')
+		modes = set([''])
 		user = user.lower()
 
 		while True:
