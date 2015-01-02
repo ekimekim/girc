@@ -73,7 +73,8 @@ class Client(object):
 		self._new_nick = None
 
 		if not logger:
-			self.logger = logging.getLogger(__name__).getChild(type(self).__name__)
+			logger = logging.getLogger(__name__).getChild(type(self).__name__)
+		self.logger = logger
 
 		if callable(stop_handler):
 			self.stop_handlers.add(stop_handler)
