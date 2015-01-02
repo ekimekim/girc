@@ -21,10 +21,14 @@ from girc.channel import Channel
 DEFAULT_PORT = 6667
 
 
+class ConnectionClosed(Exception):
+	def __str__(self):
+		return "The connection was unexpectedly closed"
+
+
 class Client(object):
 	_socket = None
 	started = False
-	stopped = False
 
 	WAIT_FOR_MESSAGES_TIMEOUT = 10
 
@@ -35,7 +39,8 @@ class Client(object):
 		(they both default to nick).
 		nick is the initial nick we set, though of course that can be changed later
 		stop_handler is a callback that will be called upon the client exiting for any reason
-			The callback should take one arg - this client.
+			The callback should take args (client, ex) where client is this client and ex is the fatal error,
+				or None for a clean disconnect.
 			You may alternatively pass in a list of multiple callbacks.
 			Note that after instantiation you can add/remove further disconnect callbacks
 			by manipulating the client.stop_handlers set.
@@ -51,6 +56,7 @@ class Client(object):
 		self._recv_queue = gevent.queue.Queue()
 		self._send_queue = gevent.queue.Queue()
 		self._group = gevent.pool.Group()
+		self._stopped = gevent.event.AsyncResult() # contains None if exited cleanly, else set with exception
 		self.message_handlers = set() # set of Handler objects
 		self.stop_handlers = set()
 		self.server_properties = ServerProperties()
@@ -136,6 +142,10 @@ class Client(object):
 				channel._join()
 
 	@property
+	def stopped(self):
+		return self._stopped.ready()
+
+	@property
 	def nick(self):
 		"""Get our current nick. May block if it is in the middle of being changed."""
 		with self._nick_lock:
@@ -212,15 +222,16 @@ class Client(object):
 			self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 			self.stop_handlers.add(lambda self: self._socket.close())
 			self._socket.connect((self.hostname, self.port))
-		except Exception:
+		except Exception as ex:
 			self.logger.exception("Error while connecting client")
-			self.stop()
-			return
+			self.stop(ex)
+			raise
 		self._group.spawn(self._send_loop)
 		self._group.spawn(self._recv_loop)
 
 	def _recv_loop(self):
 		partial = ''
+		error = None
 		try:
 			while True:
 				try:
@@ -236,13 +247,15 @@ class Client(object):
 				partial = lines.pop() # everything after final \r\n
 				for line in lines:
 					self._process(line)
-		except Exception:
+		except Exception as ex:
 			self.logger.exception("error in _recv_loop")
+			error = ex
 		if partial:
-			self.logger.warning("recv stream cut off mid-line, unused data: %r", partial)
-		self.stop()
+			self.logger.warning("recv stream cut off mid-line, unused data: {!r}".format())
+		self.stop(error or ConnectionClosed())
 
 	def _send_loop(self):
+		error = None
 		try:
 			while True:
 				message, callback = self._send_queue.get()
@@ -260,9 +273,9 @@ class Client(object):
 				if message.command == 'QUIT':
 					self.logger.info("QUIT sent, client shutting down")
 					break
-		except Exception:
+		except Exception as ex:
 			self.logger.exception("error in _send_loop")
-		self.stop()
+		self.stop(error or ConnectionClosed())
 
 	def _process(self, line):
 		self.logger.debug("Received message: {!r}".format(line))
@@ -315,10 +328,13 @@ class Client(object):
 		# wait for sync to finish
 		greenlets['sync'].get()
 
-	def stop(self):
+	def stop(self, ex=None):
 		if self.stopped:
 			return
-		self.stopped = True
+		if ex:
+			self._stopped.set_exception(ex)
+		else:
+			self._stopped.set(None)
 
 		# we spawn a child greenlet so things don't screw up if current greenlet is in self._group
 		def _stop():
@@ -345,12 +361,13 @@ class Client(object):
 		"""Shortcut to send a Privmsg. See Message.send()"""
 		message.Privmsg(self, to, content).send(block=block)
 
-	def quit(self, msg=None, block=False):
+	def quit(self, msg=None, block=True):
 		"""Shortcut to send a Quit. See Message.send().
 		Note that sending a quit automatically stops the client."""
 		message.Quit(self, msg).send()
+		_stop = gevent.spawn(self.stop)
 		if block:
-			self.wait_for_stop()
+			_stop.get()
 
 	def channel(self, name):
 		"""Fetch a channel object, or create it if it doesn't exist.
@@ -372,10 +389,8 @@ class Client(object):
 		return result.get()
 
 	def wait_for_stop(self):
-		"""Wait for client to exit"""
-		event = gevent.event.Event()
-		self.stop_handlers.add(lambda self: event.set())
-		event.wait()
+		"""Wait for client to exit, raising if it failed"""
+		self._stopped.get()
 
 	def wait_for_messages(self):
 		"""This function will attempt to block until the server has received and processed
