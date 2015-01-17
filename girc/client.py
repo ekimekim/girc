@@ -31,6 +31,8 @@ class Client(object):
 	started = False
 
 	WAIT_FOR_MESSAGES_TIMEOUT = 10
+	PING_IDLE_TIME = 60
+	PING_TIMEOUT = 30
 
 	def __init__(self, hostname, nick, port=DEFAULT_PORT, password=None,
 		         ident=None, real_name=None, stop_handler=[], logger=None):
@@ -56,6 +58,7 @@ class Client(object):
 		self._recv_queue = gevent.queue.Queue()
 		self._send_queue = gevent.queue.Queue()
 		self._group = gevent.pool.Group()
+		self._activity = gevent.event.Event() # set each time we send or recv, for idle watchdog
 		self._stopped = gevent.event.AsyncResult() # contains None if exited cleanly, else set with exception
 		self.message_handlers = set() # set of Handler objects
 		self.stop_handlers = set()
@@ -226,8 +229,26 @@ class Client(object):
 			self.logger.exception("Error while connecting client")
 			self.stop(ex)
 			raise
-		self._group.spawn(self._send_loop)
-		self._group.spawn(self._recv_loop)
+		for func in (self._send_loop, self._recv_loop, self._idle_watchdog):
+			self._group.spawn(func)
+
+	def _idle_watchdog(self):
+		"""Sends a ping if no activity for PING_IDLE_TIME seconds.
+		Disconnect if there is no response within PING_TIMEOUT seconds."""
+		error = None
+		try:
+			while True:
+				if self._activity.wait(self.PING_IDLE_TIME):
+					self._activity.clear()
+					continue
+				self.logger.info("No activity for {}s, sending PING".format(self.PING_IDLE_TIME))
+				if not self.wait_for_messages(self.PING_TIMEOUT):
+					self.logger.error("No response to watchdog PING after {}s".format(self.PING_TIMEOUT))
+					break
+		except Exception as ex:
+			self.logger.exception("error in _idle_watchdog")
+			error = ex
+		self.stop(error or ConnectionClosed())
 
 	def _recv_loop(self):
 		partial = ''
@@ -392,7 +413,7 @@ class Client(object):
 		"""Wait for client to exit, raising if it failed"""
 		self._stopped.get()
 
-	def wait_for_messages(self):
+	def wait_for_messages(self, timeout=None):
 		"""This function will attempt to block until the server has received and processed
 		all current messages. We rely on the fact that servers will generally react to messages
 		in order, and so we queue up a Ping and wait for the corresponding Pong."""
@@ -410,8 +431,10 @@ class Client(object):
 			received.set()
 			return True # unregister
 		message.Ping(self, payload).send()
-		if not received.wait(self.WAIT_FOR_MESSAGES_TIMEOUT):
-			self.logger.warning("Timed out while waiting for matching pong in wait_for_messages()")
+		if received.wait(self.WAIT_FOR_MESSAGES_TIMEOUT if timeout is None else timeout):
+			return True
+		self.logger.warning("Timed out while waiting for matching pong in wait_for_messages()")
+		return False
 
 	# aliases - the wait_for_* names are more descriptive, but they map to common async concepts:
 	join = wait_for_stop
