@@ -323,7 +323,23 @@ class Privmsg(Command):
 		return target, msg
 
 	@property
+	def target(self):
+		"""Messages to be sent may have multiple targets, but messages incoming do not (and it complicates
+		users' logic to assume they can). Our solution to this inconsistency is to provide this 'target' property,
+		but fail with ValueError if there is more than one target."""
+		if len(self.targets) != 1:
+			raise ValueError("Message does not have a single target (targets: {!r})".format(self.targets))
+		return self.targets[0]
+
+	@property
+	def reply_target(self):
+		"""Returns the target to be used to reply to this message, which is the same channel if target is a
+		channel, or directly to sender if target is this client."""
+		return self.sender if self.client.matches_nick(self.target) else self.target
+
+	@property
 	def targets(self):
+		"""Returns a list of targets"""
 		return self.params[0].split(',')
 
 	@property

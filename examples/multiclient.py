@@ -21,7 +21,7 @@ c2 = Client(host, nick2)
 class Test(object):
 	@Handler(command='PRIVMSG')
 	def reply(self, client, msg):
-		if client.nick in msg.targets:
+		if client.matches_nick(msg.target):
 			client.msg(msg.sender, "Hi from client {}".format(self.n))
 	def __init__(self, client, n):
 		self.n = n

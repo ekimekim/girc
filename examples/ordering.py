@@ -15,10 +15,7 @@ match_args = dict(command='PRIVMSG', payload='ordering test')
 client = Client(host, nick)
 
 def reply(client, msg, s):
-	for target in msg.targets:
-		if client.matches_nick(target):
-			target = msg.sender
-		client.msg(target, s)
+	client.msg(msg.reply_target, s)
 
 @client.handler(**match_args)
 def A(client, msg):
