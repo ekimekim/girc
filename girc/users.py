@@ -1,4 +1,7 @@
 
+import functools
+
+from girc.replycodes import replies
 
 
 class UserDispatchMeta(type):
@@ -58,7 +61,7 @@ def register_handlers(client):
 		@functools.wraps(fn)
 		def _with_user(client, msg):
 			user = User(client, msg.params[0])
-			return fn(user, *params[1:])
+			return fn(user, *msg.params[1:])
 		return _with_user
 
 	@command(replies.WHOISUSER)
