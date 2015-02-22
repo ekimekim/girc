@@ -34,12 +34,14 @@ class Client(object):
 	PING_IDLE_TIME = 60
 	PING_TIMEOUT = 30
 
-	def __init__(self, hostname, nick, port=DEFAULT_PORT, password=None,
+	def __init__(self, hostname, nick, port=DEFAULT_PORT, password=None, nickserv_password=None,
 		         ident=None, real_name=None, stop_handler=[], logger=None):
 		"""Create a new IRC connection to given host and port.
 		ident and real_name are optional args that control how we report ourselves to the server
 		(they both default to nick).
-		nick is the initial nick we set, though of course that can be changed later
+		nick is the initial nick we set, though of course that can be changed later.
+		password is the server password, ie. as set by a PASS command.
+		nickserv_password will be sent in a Privmsg to NickServ with "IDENTIFY" after connecting.
 		stop_handler is a callback that will be called upon the client exiting for any reason
 			The callback should take args (client, ex) where client is this client and ex is the fatal error,
 				or None for a clean disconnect.
@@ -50,6 +52,7 @@ class Client(object):
 		self.hostname = hostname
 		self.port = port
 		self.password = password
+		self.nickserv_password = nickserv_password
 		self.ident = ident or nick
 		self.real_name = real_name or nick
 		self._channels = {}
@@ -95,6 +98,8 @@ class Client(object):
 			message.Pass(self, self.password).send()
 		message.Nick(self, self.nick).send()
 		message.User(self, self.ident, self.real_name).send()
+		if self.nickserv_password:
+			self.msg('NickServ', 'IDENTIFY {}'.format(self.nickserv_password))
 
 		# default handlers
 
