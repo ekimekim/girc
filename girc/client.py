@@ -240,7 +240,6 @@ class Client(object):
 	def _idle_watchdog(self):
 		"""Sends a ping if no activity for PING_IDLE_TIME seconds.
 		Disconnect if there is no response within PING_TIMEOUT seconds."""
-		error = None
 		try:
 			while True:
 				if self._activity.wait(self.PING_IDLE_TIME):
@@ -249,11 +248,11 @@ class Client(object):
 				self.logger.info("No activity for {}s, sending PING".format(self.PING_IDLE_TIME))
 				if not self.wait_for_messages(self.PING_TIMEOUT):
 					self.logger.error("No response to watchdog PING after {}s".format(self.PING_TIMEOUT))
-					break
+					self.stop(ConnectionClosed())
+					return
 		except Exception as ex:
 			self.logger.exception("error in _idle_watchdog")
-			error = ex
-		self.stop(error or ConnectionClosed())
+			self.stop(ex)
 
 	def _recv_loop(self):
 		partial = ''
@@ -281,7 +280,6 @@ class Client(object):
 		self.stop(error or ConnectionClosed())
 
 	def _send_loop(self):
-		error = None
 		try:
 			while True:
 				message, callback = self._send_queue.get()
@@ -292,16 +290,18 @@ class Client(object):
 				except socket.error as ex:
 					if ex.errno == errno.EPIPE:
 						self.logger.info("failed to send, socket closed")
-						break
+						self.stop(ConnectionClosed())
+						return
 					raise
 				if callback is not None:
 					self._group.spawn(callback, self, message)
 				if message.command == 'QUIT':
 					self.logger.info("QUIT sent, client shutting down")
-					break
+					self.stop()
+					return
 		except Exception as ex:
 			self.logger.exception("error in _send_loop")
-		self.stop(error or ConnectionClosed())
+			self.stop(ex)
 
 	def _process(self, line):
 		self.logger.debug("Received message: {!r}".format(line))
@@ -391,9 +391,8 @@ class Client(object):
 		"""Shortcut to send a Quit. See Message.send().
 		Note that sending a quit automatically stops the client."""
 		message.Quit(self, msg).send()
-		_stop = gevent.spawn(self.stop)
 		if block:
-			_stop.get()
+			self.wait_for_stop()
 
 	def channel(self, name):
 		"""Fetch a channel object, or create it if it doesn't exist.
