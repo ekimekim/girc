@@ -464,7 +464,10 @@ def match(message, command=None, params=None, **attr_args):
 		depends on the type of the passed in match arg:
 			string: Exact string match on the message value
 			regex object (as returned by re.compile()): re.match() on message value
-			callable: Function that takes a single arg (the message value) and returns True or False
+			callable: Function that takes:
+			              a single arg (the message value)
+			              OR two args (message client, message value)
+			          and returns True or False
 			iterable: A list of the above, of which at least one must match.
 			None: Match anything (useful with the params arg)
 
@@ -481,6 +484,8 @@ def match(message, command=None, params=None, **attr_args):
 			match(message, command=332, params=[None, "#mychan", None])
 		Match a RPL_NAMREPLY (353) where param 1 of any is "#mychan":
 			match(message, command=353, params=lambda params: len(params) > 1 and params[1] == "#mychan")
+		Match a Privmsg sent directly to the client (without being specific to a client):
+			match(message, command=Privmsg, nick=lambda c, v: c.matches_nick(v))
 	"""
 	def match_value(match_spec, value):
 		if match_spec is None:
@@ -494,8 +499,19 @@ def match(message, command=None, params=None, **attr_args):
 				match_value = match_part
 				match_part = lambda v: match_value == v
 			try:
-				if match_part(value):
-					return True
+				try:
+					# does it work with 1 arg?
+					if match_part(value):
+						return True
+				except TypeError:
+					# ok, how about 2 args?
+					if match_part(message.client, value):
+						return True
+			except TypeError:
+				# both 1 arg and 2 args raised TypeError - raise the 2nd one as it's most likely a bug
+				# (note this seemingly do-nothing clause overrides the later Exception clause, allowing
+				#  TypeError to raise but nothing else)
+				raise
 			except Exception:
 				pass # a failed callable means False
 		return False
