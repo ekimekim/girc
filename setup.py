@@ -8,5 +8,6 @@ setup(name="girc",
       packages=find_packages(),
       install_requires=[
           'gevent',
+          'monotonic',
       ],
      )

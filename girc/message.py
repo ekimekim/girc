@@ -2,8 +2,10 @@
 import sys
 import random
 import re
+import time
 
 import gevent
+from monotonic import monotonic
 
 from girc import replycodes
 from girc.common import classproperty, subclasses, iterable, int_equals
@@ -89,6 +91,8 @@ class Message(object):
 		self.client = client
 		self.command = command
 		self.params = params
+		self.received_at = time.time()
+		self._received_at_mono = monotonic()
 		self.sender = kwargs.pop('sender', None)
 		self.user = kwargs.pop('user', None)
 		self.host = kwargs.pop('host', None)
@@ -142,6 +146,11 @@ class Message(object):
 	def code(self):
 		"""If command is a numeric code, returns the string representation, otherwise None"""
 		return replycodes.codes.get(self.command, None)
+
+	def since_received(self):
+		"""Use instead of self.received_at to get seconds since message was received.
+		Uses monotonic time instead of wall time, and so is immune to system clock jumps."""
+		return monotonic() - self._received_time_mono
 
 
 class Command(Message):
