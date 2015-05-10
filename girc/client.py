@@ -95,7 +95,7 @@ class Client(object):
 
 		# init messages
 		if self.password:
-			message.Pass(self, self.password).send()
+			message.Message(self, 'PASS', self.password).send()
 		message.Nick(self, self.nick).send()
 		message.User(self, self.ident, self.real_name).send()
 		if self.nickserv_password:
