@@ -189,6 +189,19 @@ class Client(object):
 		"""
 		return value in (self._nick, self._new_nick)
 
+	def increment_nick(self, nick):
+		"""For a given nick, return "incremented" nick by following rules:
+			If nick is of form /.*\|\d+/ (ie. ends in '|' then a number), add random digit to number
+			Otherwise, append | and a random digit.
+		This keeps nick length minimized while still performing well when 100s of clients are all
+		following the same algorithm for one constested nick.
+		"""
+		parts = nick.split('|')
+		if not (parts[-1] or parts[-1].isdigit()):
+			parts.append('')
+		parts[-1] += random.choice(string.digits)
+		return '|'.join(parts)
+
 	def handler(self, callback=None, **match_args):
 		"""Add callback to be called upon a matching message being received.
 		See geventirc.message.match() for match_args.
