@@ -113,7 +113,8 @@ class Client(object):
 
 		@self.handler(command=replycodes.errors.NICKNAMEINUSE, sync=True)
 		def nick_in_use(client, msg):
-			bad_nick = msg.params[0]
+			bad_nick = msg.params[1]
+			self.logger.debug("Nick {!r} in use (our nick: {!r} -> {!r})".format(bad_nick, self._nick, self._new_nick))
 			if self._new_nick:
 				# if we're changing nicks, ignore it unless it matches the new one
 				if bad_nick != self._new_nick:
