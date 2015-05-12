@@ -244,7 +244,7 @@ class Client(object):
 			self.logger.exception("error in _recv_loop")
 			error = ex
 		if partial:
-			self.logger.warning("recv stream cut off mid-line, unused data: {!r}".format())
+			self.logger.warning("recv stream cut off mid-line, unused data: {!r}".format(partial))
 		self.stop(error or ConnectionClosed())
 
 	def _send_loop(self):
