@@ -198,7 +198,7 @@ class Client(object):
 		following the same algorithm for one constested nick.
 		"""
 		parts = nick.split('|')
-		if not (parts[-1] or parts[-1].isdigit()):
+		if parts[-1] and not parts[-1].isdigit():
 			parts.append('')
 		parts[-1] += random.choice(string.digits)
 		return '|'.join(parts)
