@@ -13,7 +13,7 @@ from gevent import socket
 
 from girc import message
 from girc import replycodes
-from girc.handler import Handler
+from girc.handler import Handler, BoundHandler
 from girc.server_properties import ServerProperties
 from girc.channel import Channel
 
@@ -287,14 +287,17 @@ class Client(object):
 	def _dispatch_handlers(self, msg):
 		"""Carefully builds a set of greenlets for all message handlers, obeying ordering metadata for each handler.
 		Returns when all sync=True handlers have been executed."""
+		def normalize(handler):
+			# handler might be a Handler, BoundHandler or "sync"
+			return handler.handler if isinstance(handler, BoundHandler) else handler
 		# build dependency graph
 		graph = {handler: set() for handler in self.message_handlers}
 		graph['sync'] = set()
 		for handler in self.message_handlers:
-			for other in handler.after:
+			for other in map(normalize, handler.after):
 				if other in graph:
 					graph[handler].add(other)
-			for other in handler.before:
+			for other in map(normalize, handler.before):
 				if other in graph:
 					graph[other].add(handler)
 		# check for cycles
