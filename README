@@ -1,4 +1,4 @@
-geventirc is a gevent-based irc library, with an emphasis on trying to do common tasks
+girc is a gevent-based irc library, with an emphasis on trying to do common tasks
 so that the user doesn't have to.
 
 This was originally based on https://github.com/gwik/geventirc, however it has diverged signifigantly since then.
