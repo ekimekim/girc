@@ -530,18 +530,21 @@ def match(message, command=None, params=None, **attr_args):
 			commands = [command]
 		else:
 			commands = command
-
-		for command in commands:
-			# is command a Command subclass?
-			if isinstance(command, type) and issubclass(command, Command):
-				command = command.command
-			# is command an int?
-			if int_equals(command, message.command):
-				continue # it's a match
-			# finally, check str
-			command = str(command).upper()
-			if command != message.command:
-				return False
+		def gen_command_match(command):
+			def command_match(value):
+				_command = command
+				# is command a Command subclass?
+				if isinstance(_command, type) and issubclass(_command, Command):
+					_command = _command.command
+				# is command an int?
+				if int_equals(_command, value):
+					return True # it's a match
+				# finally, check str
+				_command = str(_command).upper()
+				return _command == value
+			return command_match
+		if not match_value(map(gen_command_match, commands), message.command):
+			return False
 
 	if params is not None:
 		if callable(params):
