@@ -42,7 +42,7 @@ class Handler(object):
 		If callback object is already a Handler, the new init data is merged into the old handler.
 		Callback may be omitted, in which case the first time Handler() is called it will act as a decorator,
 		binding to the given argument.
-		Client may be omitted, in which case the handler must later be bound to a client with handler.bind().
+		Client may be omitted, in which case the handler must later be bound to a client with handler.register().
 		"""
 		self.match_list = [] # list of match_args dicts to match on
 		self.client_binds = {} # maps {client: set(instances to bind and call)}
@@ -83,7 +83,29 @@ class Handler(object):
 			client.message_handlers.discard(self)
 			del self.client_binds[client]
 
-	def unregister_all(self, client):
+	@classmethod
+	def find_handlers(cls, instance):
+		"""Returns a set of BoundHandlers for Handlers that are methods for given instance."""
+		result = set()
+		for attr in dir(instance):
+			value = getattr(instance, attr)
+			if isinstance(value, BoundHandler):
+				result.add(value)
+		return result
+
+	@classmethod
+	def register_all(cls, client, instance):
+		"""Find methods of the given instance that are Handlers, and register them to client."""
+		for handler in cls.find_handlers(instance):
+			handler.register(client)
+
+	@classmethod
+	def unregister_all(cls, client, instance):
+		"""As register_all(), unregisters any handlers for instance if registered"""
+		for handler in cls.find_handlers(instance):
+			handler.unregister(client)
+
+	def unregister_for_client(self, client):
 		"""You probably don't want this. It removes all registrations with client, not just for one instance.
 		It is mainly intended for a client to call when it is stopping."""
 		self.client_binds.pop(client, None)

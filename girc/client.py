@@ -390,7 +390,7 @@ class Client(object):
 			for user in self._users.values():
 				user.client = None
 			for handler in self.message_handlers.copy():
-				handler.unregister_all(self)
+				handler.unregister_for_client(self)
 			# queues might contain some final messages
 			self._send_queue = None
 			self._recv_queue = None
