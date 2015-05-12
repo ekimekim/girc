@@ -30,6 +30,7 @@ class Client(object):
 	_socket = None
 	started = False
 
+	REGISTRATION_TIMEOUT = 5
 	WAIT_FOR_MESSAGES_TIMEOUT = 10
 	PING_IDLE_TIME = 60
 	PING_TIMEOUT = 30
@@ -60,6 +61,7 @@ class Client(object):
 
 		self._recv_queue = gevent.queue.Queue()
 		self._send_queue = gevent.queue.Queue()
+		self._registration_queue = gevent.queue.Queue()
 		self._group = gevent.pool.Group()
 		self._activity = gevent.event.Event() # set each time we send or recv, for idle watchdog
 		self._stopped = gevent.event.AsyncResult() # contains None if exited cleanly, else set with exception
@@ -93,11 +95,6 @@ class Client(object):
 		else:
 			self.stop_handlers.update(stop_handler)
 
-		# init messages
-		if self.password:
-			message.Message(self, 'PASS', self.password).send()
-		message.Nick(self, self.nick).send()
-		message.User(self, self.ident, self.real_name).send()
 		if self.nickserv_password:
 			self.msg('NickServ', 'IDENTIFY {}'.format(self.nickserv_password))
 
@@ -177,13 +174,14 @@ class Client(object):
 		"""
 		return Handler(client=self, callback=callback, **match_args)
 
-	def _send(self, message, callback):
+	def _send(self, message, callback, _registration=False):
 		"""A low level interface to send a message. You normally want to use Message.send() instead.
 		Callback is called after message is sent, and takes args (client, message).
 		Callback may be None.
 		"""
 		self.logger.debug("Queuing message {}".format(message))
-		self._send_queue.put((message, callback))
+		queue = self._registration_queue if _registration else self._send_queue
+		queue.put((message, callback))
 
 	def start(self):
 		if self.stopped:
@@ -202,8 +200,36 @@ class Client(object):
 			self.logger.exception("Error while connecting client")
 			self.stop(ex)
 			raise
+
 		for func in (self._send_loop, self._recv_loop, self._idle_watchdog):
 			self._group.spawn(func)
+
+		# registration is a delicate dance...
+		reg_send = lambda msg: self._send(msg, None, _registration=True)
+		with self._nick_lock:
+
+			reg_done = gevent.event.Event()
+			@self.handler(command=replycodes.replies.WELCOME)
+			def reg_got_welcome(client, msg):
+				reg_done.set()
+
+			@self.handler(command=replycodes.errors.NICKNAMEINUSE)
+			def reg_nick_in_use(client, msg):
+				self._nick = self.increment_nick(self._nick)
+				reg_send(message.Nick(self, self._nick))
+
+			if self.password:
+				reg_send(message.Message(self, 'PASS', self.password))
+			reg_send(message.Nick(self, self._nick))
+			reg_send(message.User(self, self.ident, self.real_name))
+
+			if not reg_done.wait(self.REGISTRATION_TIMEOUT):
+				ex = Exception("Registration timeout")
+				self.stop(ex)
+				raise ex
+
+			self._registration_queue.put((None, None)) # sentinel value makes send_loop move on to real send_queue
+			self.logger.debug("Registration complete")
 
 	def _idle_watchdog(self):
 		"""Sends a ping if no activity for PING_IDLE_TIME seconds.
@@ -248,9 +274,14 @@ class Client(object):
 		self.stop(error or ConnectionClosed())
 
 	def _send_loop(self):
+		send_queue = self._registration_queue
 		try:
 			while True:
-				message, callback = self._send_queue.get()
+				message, callback = send_queue.get()
+				if (message, callback) == (None, None):
+					assert send_queue is self._registration_queue, "Sentinel recieved on normal send queue"
+					send_queue = self._send_queue
+					continue
 				line = "{}\r\n".format(message.encode())
 				self.logger.debug("Sending message: {!r}".format(line))
 				try:
