@@ -101,54 +101,8 @@ class Client(object):
 		if self.nickserv_password:
 			self.msg('NickServ', 'IDENTIFY {}'.format(self.nickserv_password))
 
-		# default handlers
-
-		@self.handler(command=message.ISupport, sync=True)
-		def recv_support(client, msg):
-			self.server_properties.update(msg.properties)
-
-		@self.handler(command=message.Ping)
-		def on_ping(client, msg):
-			message.Pong(client, msg.payload).send()
-
-		@self.handler(command=replycodes.errors.NICKNAMEINUSE, sync=True)
-		def nick_in_use(client, msg):
-			bad_nick = msg.params[1]
-			self.logger.debug("Nick {!r} in use (our nick: {!r} -> {!r})".format(bad_nick, self._nick, self._new_nick))
-			if self._new_nick:
-				# if we're changing nicks, ignore it unless it matches the new one
-				if bad_nick != self._new_nick:
-					return
-				# cancel current change and wait
-				self._new_nick = self._nick
-			else:
-				# if we aren't changing nicks...
-				if bad_nick != self._nick:
-					return # this is some kind of race cdn
-			# if we've made it here, we want to increment our nick
-			with self._nick_lock:
-				# now that we've waited for any other operations to finish, let's double check
-				# that we're still talking about the same nick
-				if bad_nick != self._nick:
-					return
-				self.nick = self.increment_nick(self._nick)
-
-		@self.handler(command='NICK', sender=self.matches_nick, sync=True)
-		def forced_nick_change(client, msg):
-			if msg.sender == self._new_nick:
-				# we are changing, and this was sent after our change was recieved so we must respect it.
-				self._new_nick = msg.nickname
-			elif msg.sender == self._nick:
-				# either we aren't changing and everything is fine, or we are changing but this was
-				# sent before the NICK command was processed by the server, so we change our old value
-				# so further forced_nick_changes and matches_nick() still works.
-				self._nick = msg.nickname
-
-		@self.handler(command='JOIN', sender=self.matches_nick, sync=True)
-		def forced_join(client, msg):
-			for name in msg.channels:
-				channel = self.channel(name)
-				channel._join()
+		# Register Handler methods
+		Handler.register_all(self, self)
 
 	@property
 	def stopped(self):
@@ -465,3 +419,51 @@ class Client(object):
 		if name[0] in self.server_properties.CHANTYPES:
 			return name
 		return "{prefix}{name}".format(name=name, prefix=self.server_properties.CHANTYPES[0])
+
+	@Handler(command=message.ISupport, sync=True)
+	def recv_support(self, client, msg):
+		self.server_properties.update(msg.properties)
+
+	@Handler(command=message.Ping)
+	def on_ping(self, client, msg):
+		message.Pong(client, msg.payload).send()
+
+	@Handler(command=replycodes.errors.NICKNAMEINUSE, sync=True)
+	def nick_in_use(self, client, msg):
+		bad_nick = msg.params[1]
+		self.logger.debug("Nick {!r} in use (our nick: {!r} -> {!r})".format(bad_nick, self._nick, self._new_nick))
+		if self._new_nick:
+			# if we're changing nicks, ignore it unless it matches the new one
+			if bad_nick != self._new_nick:
+				return
+			# cancel current change and wait
+			self._new_nick = self._nick
+		else:
+			# if we aren't changing nicks...
+			if bad_nick != self._nick:
+				return # this is some kind of race cdn
+		# if we've made it here, we want to increment our nick
+		with self._nick_lock:
+			# now that we've waited for any other operations to finish, let's double check
+			# that we're still talking about the same nick
+			if bad_nick != self._nick:
+				return
+			self.nick = self.increment_nick(self._nick)
+
+	@Handler(command='NICK', sender=matches_nick, sync=True)
+	def forced_nick_change(self, client, msg):
+		if msg.sender == self._new_nick:
+			# we are changing, and this was sent after our change was recieved so we must respect it.
+			self._new_nick = msg.nickname
+		elif msg.sender == self._nick:
+			# either we aren't changing and everything is fine, or we are changing but this was
+			# sent before the NICK command was processed by the server, so we change our old value
+			# so further forced_nick_changes and matches_nick() still works.
+			self._nick = msg.nickname
+
+	@Handler(command='JOIN', sender=matches_nick, sync=True)
+	def forced_join(self, client, msg):
+		for name in msg.channels:
+			channel = self.channel(name)
+			channel._join()
+
