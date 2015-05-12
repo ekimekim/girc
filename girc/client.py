@@ -446,12 +446,16 @@ class Client(object):
 			if bad_nick != self._nick:
 				return # this is some kind of race cdn
 		# if we've made it here, we want to increment our nick
-		with self._nick_lock:
-			# now that we've waited for any other operations to finish, let's double check
-			# that we're still talking about the same nick
-			if bad_nick != self._nick:
-				return
-			self.nick = self.increment_nick(self._nick)
+		# since the first part had to be done before sync but this part may block,
+		# we spawn a seperate greenlet to finish later.
+		@self._group.spawn
+		def wait_and_increment():
+			with self._nick_lock:
+				# now that we've waited for any other operations to finish, let's double check
+				# that we're still talking about the same nick
+				if bad_nick != self._nick:
+					return
+				self.nick = self.increment_nick(self._nick)
 
 	@Handler(command='NICK', sender=matches_nick, sync=True)
 	def forced_nick_change(self, client, msg):
