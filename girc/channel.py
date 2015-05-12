@@ -22,11 +22,11 @@ class Channel(object):
 	USERS_READY_TIMEOUT = 10
 
 	joined = False
-	users_ready = gevent.event.Event()
 	users = None
 
 	def __init__(self, client, name):
 		self.client = client
+		self.users_ready = gevent.event.Event()
 		self.name = client.normalize_channel(name)
 		self.client._channels[self.name] = self
 		self.client.handler(self._recv_part, command=Part, channels=lambda value: self.name in value, sync=True)
