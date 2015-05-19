@@ -1,9 +1,13 @@
 
-import logging
 import errno
-import string
+import json
+import logging
+import os
 import random
+import string
 import weakref
+from contextlib import closing
+from multiprocessing.reduction import send_handle, recv_handle
 
 import gevent.queue
 import gevent.pool
@@ -105,6 +109,78 @@ class Client(object):
 
 		# Register Handler methods
 		Handler.register_all(self, self)
+
+	@classmethod
+	def _from_handoff(cls, sock, recv_buf, channels, **init_args):
+		"""Alternate constructor that takes the args needed to resume a connection handed off
+		from another Client instance. Used to implement graceful restart without dropping connections.
+		sock is the connection to inherit.
+		recv_buf may contain data that was read from the socket but not processed (eg. a partial line)
+		channels is a list of joined channels
+		init args must match the ones from the handing off Client.
+		"""
+		client = cls(**init_args)
+		client.logger.info("Initializing client from handoff args ({} channels)".format(len(channels)))
+		client._socket = sock
+		client._recv_buf = recv_buf
+		client.stop_handlers.add(lambda client: client._socket.close())
+
+		for name in channels:
+			channel = client.channel(name)
+			channel._join() # note we don't send a JOIN
+			message.Message(client, 'NAMES', name).send() # re-sync user list
+
+		def handoff_start():
+			client.started = True
+			client.logger.debug("Starting using alternate handoff start")
+			client._registration_queue.put((None, None)) # skip straight to main send queue
+			client._start_greenlets()
+		client.start = handoff_start
+
+		return client
+
+	@classmethod
+	def from_instance_handoff(cls, client):
+		"""Takes a running client instance and creates a new Client instance without closing the connection."""
+		client._prepare_for_handoff()
+		new_client = cls._from_handoff(client._socket, **client._get_handoff_data())
+		client._finalize_handoff()
+		return new_client
+
+	@classmethod
+	def from_sock_handoff(cls, sock_path, **init_args):
+		"""Creates a unix socket at given path and waits for another process to connect to it.
+		Expects the connecting process to send it a socket fd and handoff data - see client.handoff_to_sock()
+		While most init args are provided by handoff data, others (eg. logger) can be passed in as extra kwargs.
+		"""
+		connection = None
+		try:
+			with closing(socket.socket(socket.AF_UNIX)) as listener:
+				listener.bind(sock_path)
+				listener.listen(128)
+				recv_sock, addr = listener.accept()
+				with closing(recv_sock):
+					# receive fd from other process
+					fd = recv_handle(recv_sock)
+					connection = socket.fromfd(fd, socket.AF_INET, socket.SOCK_STREAM)
+
+					# receive other args as json
+					handoff_data = ''
+					s = True
+					while s: # loop until closed
+						s = recv_sock.recv(4096)
+						handoff_data += s
+					handoff_data = json.loads(handoff_data)
+
+					handoff_data.update(init_args)
+					return cls._from_handoff(connection, **handoff_data)
+		except Exception:
+			if connection:
+				connection.close()
+			raise
+		finally:
+			if os.path.exists(sock_path):
+				os.remove(sock_path)
 
 	@property
 	def stopped(self):
@@ -521,3 +597,58 @@ class Client(object):
 			channel = self.channel(name)
 			channel._join()
 
+	def _get_handoff_data(self):
+		"""Collect all data needed for a connection handoff and return as dict.
+		Make sure _prepare_for_handoff has been called first."""
+		return dict(
+			recv_buf = self._recv_buf,
+			channels = [channel.name for channel in self._channels.values() if channel.joined],
+			hostname = self.hostname,
+			nick = self._nick,
+			port = self.port,
+			password = self.password,
+			ident = self.ident,
+			real_name = self.real_name,
+		)
+
+	def _prepare_for_handoff(self):
+		"""Stop operations and prepare for a connection handoff.
+		Note that, among other things, this stops the client from responding to PINGs from the server,
+		and so effectively begins a timeout until the server drops the connection."""
+		# wait until we aren't changing nick, then permanently acquire the lock to prevent further changes
+		# (note that forced_nick_change could still change it, but that's ok because we're stopping recv_loop)
+		self._nick_lock.acquire()
+
+		self._named_greenlets['_idle_watchdog'].kill(block=True)
+		self._kill_recv = True # recv_loop will exit after processing current lines
+		self._named_greenlets['_recv_loop'].get()
+
+		# we are now no longer recving messages - we set a trap on _send(), then wait for send_queue to drain.
+		# in practice, things should be unlikely to hit trap.
+		def trap(*a, **k): raise Exception("Connection is being handed off, messages cannot be sent")
+		self._send = trap
+		# We re-use the activity flag to check queue after each message is sent
+		while True:
+			self._activity.clear()
+			if self._send_queue.empty():
+				break
+			self._activity.wait()
+
+		# final state: recv loop is stopped, send loop is hung as no further messages can be queued and queue is empty
+
+	def _finalize_handoff(self):
+		"""Actually report stop once we have fully handed off."""
+		self.stop()
+
+	def handoff_to_sock(self, sock_path):
+		"""Connect to given unix socket path and hand off connection to other process via it."""
+		with closing(socket.socket(socket.AF_UNIX)) as send_sock:
+			send_sock.connect(sock_path)
+
+			self._prepare_for_handoff()
+			handoff_data = json.dumps(self._get_handoff_data())
+
+			send_handle(send_sock, self._socket, None)
+			send_sock.sendall(handoff_data)
+
+		self._finalize_handoff()
