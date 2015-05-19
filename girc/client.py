@@ -30,6 +30,10 @@ class Client(object):
 	_socket = None
 	started = False
 
+	# some insight into the state of _recv_loop to allow for smooth connection handoff
+	_recv_buf = ''
+	_kill_recv = False
+
 	REGISTRATION_TIMEOUT = 5
 	WAIT_FOR_MESSAGES_TIMEOUT = 10
 	PING_IDLE_TIME = 60
@@ -184,6 +188,14 @@ class Client(object):
 		queue = self._registration_queue if _registration else self._send_queue
 		queue.put((message, callback))
 
+	def _start_greenlets(self):
+		"""Start standard greenlets that should always run, and put them in a dict indexed by their name,
+		to allow special operations to refer to them specifically."""
+		self._named_greenlets = {
+			name: self._group.spawn(getattr(self, name))
+			for name in ('_send_loop', '_recv_loop', '_idle_watchdog')
+		}
+
 	def start(self):
 		if self.stopped:
 			self.logger.info("Ignoring start() - already stopped (please create a new Client instead)")
@@ -202,8 +214,7 @@ class Client(object):
 			self.stop(ex)
 			raise
 
-		for func in (self._send_loop, self._recv_loop, self._idle_watchdog):
-			self._group.spawn(func)
+		self._start_greenlets()
 
 		# registration is a delicate dance...
 		reg_send = lambda msg: self._send(msg, None, _registration=True)
@@ -250,7 +261,6 @@ class Client(object):
 			self.stop(ex)
 
 	def _recv_loop(self):
-		partial = ''
 		error = None
 		try:
 			while True:
@@ -263,17 +273,19 @@ class Client(object):
 				if not data:
 					self.logger.info("no data from recv, socket closed")
 					break
-				lines = (partial+data).split('\r\n')
-				partial = lines.pop() # everything after final \r\n
+				lines = (self._recv_buf + data).split('\r\n')
+				self._recv_buf = lines.pop() # everything after final \r\n
 				if lines:
 					self._activity.set()
 				for line in lines:
 					self._process(line)
+				if self._kill_recv:
+					return
 		except Exception as ex:
 			self.logger.exception("error in _recv_loop")
 			error = ex
-		if partial:
-			self.logger.warning("recv stream cut off mid-line, unused data: {!r}".format(partial))
+		if self._recv_buf:
+			self.logger.warning("recv stream cut off mid-line, unused data: {!r}".format(self._recv_buf))
 		self.stop(error or ConnectionClosed())
 
 	def _send_loop(self):
