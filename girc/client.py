@@ -34,6 +34,7 @@ class Client(object):
 	WAIT_FOR_MESSAGES_TIMEOUT = 10
 	PING_IDLE_TIME = 60
 	PING_TIMEOUT = 30
+	PING_IDLE_WRITE_ONLY = False
 
 	def __init__(self, hostname, nick, port=DEFAULT_PORT, password=None, nickserv_password=None,
 		         ident=None, real_name=None, stop_handler=[], logger=None):
@@ -264,6 +265,8 @@ class Client(object):
 					break
 				lines = (partial+data).split('\r\n')
 				partial = lines.pop() # everything after final \r\n
+				if lines:
+					self._activity.set()
 				for line in lines:
 					self._process(line)
 		except Exception as ex:
@@ -292,6 +295,7 @@ class Client(object):
 						self.stop(ConnectionClosed())
 						return
 					raise
+				self._activity.set()
 				if callback is not None:
 					self._group.spawn(callback, self, message)
 				if message.command == 'QUIT':
