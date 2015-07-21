@@ -124,7 +124,7 @@ class Message(object):
 		"""
 		if block:
 			event = gevent.event.Event()
-			callback = event.set
+			callback = lambda client, msg: event.set()
 		self.client._send(self, callback)
 		if block:
 			event.wait()
