@@ -7,7 +7,6 @@ import random
 import string
 import weakref
 from contextlib import closing
-from multiprocessing.reduction import send_handle, recv_handle
 
 import gevent.queue
 import gevent.pool
@@ -20,6 +19,7 @@ from girc import replycodes
 from girc.handler import Handler, BoundHandler
 from girc.server_properties import ServerProperties
 from girc.channel import Channel
+from girc.common import send_fd, recv_fd
 
 
 DEFAULT_PORT = 6667
@@ -161,7 +161,7 @@ class Client(object):
 				recv_sock, addr = listener.accept()
 				with closing(recv_sock):
 					# receive fd from other process
-					fd = recv_handle(recv_sock)
+					fd = recv_fd(recv_sock)
 					connection = socket.fromfd(fd, socket.AF_INET, socket.SOCK_STREAM)
 
 					# receive other args as json
@@ -648,7 +648,7 @@ class Client(object):
 			self._prepare_for_handoff()
 			handoff_data = json.dumps(self._get_handoff_data())
 
-			send_handle(send_sock, self._socket, None)
+			send_fd(send_sock, self._socket)
 			send_sock.sendall(handoff_data)
 
 		self._finalize_handoff()

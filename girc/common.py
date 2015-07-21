@@ -1,6 +1,8 @@
 
+import multiprocessing.reduction
 from collections import defaultdict
 
+from gevent.select import select
 from gevent.event import AsyncResult
 
 
@@ -71,3 +73,26 @@ def int_equals(a, b):
 		return int(a) == int(b)
 	except ValueError:
 		return False
+
+
+def send_fd(sock, fd):
+	"""Send an fd over a unix socket"""
+	if hasattr(fd, 'fileno'):
+		fd = fd.fileno()
+	while True:
+		r, w, x = select([], [sock], [])
+		if not w:
+			continue
+		multiprocessing.reduction.send_handle(sock, fd, None)
+		break
+
+
+def recv_fd(sock):
+	"""Receive an fd from a unix socket.
+	Note this function returns a raw integer fd. You probably want to os.fdopen() or socket.fromfd() it.
+	"""
+	while True:
+		r, w, x = select([sock], [], [])
+		if not r:
+			continue
+		return multiprocessing.reduction.recv_handle(sock)
