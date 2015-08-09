@@ -37,6 +37,7 @@ class Client(object):
 	# some insight into the state of _recv_loop to allow for smooth connection handoff
 	_recv_buf = ''
 	_kill_recv = False
+	_stopping = False
 
 	REGISTRATION_TIMEOUT = 5
 	WAIT_FOR_MESSAGES_TIMEOUT = 10
@@ -86,7 +87,7 @@ class Client(object):
 		# self._nick: what we think the server thinks our nick is. when our nick is in the process
 		#             of changing, this is the OLD nick.
 		# self._new_nick: None unless it is in the process of changing. When changing, the nick we
-		#                 are switching to.
+
 		# We can only attempt to change our nick when it is not in the middle of changing (we do this
 		# by holding self._nick_lock). If we get a forced nick change x -> y while changing, it changes
 		# self._nick if x is the old nick, or self._new_nick if x is the new nick.
@@ -449,12 +450,9 @@ class Client(object):
 		greenlets['sync'].get()
 
 	def stop(self, ex=None):
-		if self.stopped:
-			return
-		if ex:
-			self._stopped.set_exception(ex)
-		else:
-			self._stopped.set(None)
+		if self._stopping:
+			return self.wait_for_stop()
+		self._stopping = True
 
 		# we spawn a child greenlet so things don't screw up if current greenlet is in self._group
 		def _stop():
@@ -474,6 +472,12 @@ class Client(object):
 			# queues might contain some final messages
 			self._send_queue = None
 			self._recv_queue = None
+
+			# act of setting _stopped will make wait_for_stop()s fire
+			if ex:
+				self._stopped.set_exception(ex)
+			else:
+				self._stopped.set(None)
 
 		gevent.spawn(_stop).join()
 
