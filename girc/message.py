@@ -360,7 +360,10 @@ class Privmsg(Command):
 		"""Returns (ctcp_command, ctcp_arg) or None"""
 		if not (self.payload.startswith('\x01') and self.payload.endswith('\x01')):
 			return
-		return self.payload.strip('\x01').split(' ', 1)
+		payload = self.payload.strip('\x01')
+		if not ' ' in payload:
+			return payload, ""
+		return payload.split(' ', 1)
 
 	@classmethod
 	def action(cls, target, message):
