@@ -5,6 +5,7 @@ import logging
 import os
 import random
 import string
+import time
 import weakref
 from contextlib import closing
 
@@ -46,10 +47,12 @@ class Client(object):
 	PING_IDLE_WRITE_ONLY = False
 
 	def __init__(self, hostname, nick, port=DEFAULT_PORT, password=None, nickserv_password=None,
-		         ident=None, real_name=None, stop_handler=[], logger=None):
+		         ident=None, real_name=None, stop_handler=[], logger=None, version='girc', time='local'):
 		"""Create a new IRC connection to given host and port.
 		ident and real_name are optional args that control how we report ourselves to the server
 		(they both default to nick).
+		Similarly, version and time control our response to interrogative commands. Either can be set
+			None to disable response. Time defaults to 'local' (use local time) but 'utc' is also an option.
 		nick is the initial nick we set, though of course that can be changed later.
 		password is the server password, ie. as set by a PASS command.
 		nickserv_password will be sent in a Privmsg to NickServ with "IDENTIFY" after connecting.
@@ -66,6 +69,8 @@ class Client(object):
 		self.nickserv_password = nickserv_password
 		self.ident = ident or nick
 		self.real_name = real_name or nick
+		self.version = version
+		self.time = time
 		self._channels = {}
 		self._users = weakref.WeakValueDictionary()
 
@@ -600,6 +605,27 @@ class Client(object):
 		for name in msg.channels:
 			channel = self.channel(name)
 			channel._join()
+
+	@Handler(command='PRIVMSG', ctcp=lambda v: v and v[0].upper() == 'VERSION')
+	def ctcp_version(self, client, msg):
+		if self.version:
+			self.msg(msg.reply_target, ('VERSION', self.version))
+
+	@Handler(command='PRIVMSG', ctcp=lambda v: v and v[0].upper() == 'TIME')
+	def ctcp_time(self, client, msg):
+		if self.time is 'utc':
+			now = time.gmtime()
+		elif self.time is 'local':
+			now = time.localtime()
+		else:
+			return
+		now = time.strftime('%s|%F %T', now)
+		self.msg(msg.reply_target, ('TIME', now))
+
+	@Handler(command='PRIVMSG', ctcp=lambda v: v and v[0].upper() == 'PING')
+	def ctcp_ping(self, client, msg):
+		cmd, arg = msg.ctcp
+		self.msg(msg.reply_target, ('PING', arg))
 
 	def _get_handoff_data(self):
 		"""Collect all data needed for a connection handoff and return as dict.
