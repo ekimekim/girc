@@ -82,7 +82,7 @@ class Message(object):
 	__metaclass__ = MessageDispatchMeta
 
 	def __init__(self, client, command, *params, **kwargs):
-		"""Takes optional kwargs sender, user, host and ctcp
+		"""Takes optional kwargs sender, user and host
 		sender, user, host are the args that form the message prefix.
 		Note that the constructor will automatically return the appropriate Message subclass
 		if the command is recognised.
