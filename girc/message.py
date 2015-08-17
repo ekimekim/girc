@@ -366,9 +366,9 @@ class Privmsg(Command):
 		return payload.split(' ', 1)
 
 	@classmethod
-	def action(cls, target, message):
+	def action(cls, client, target, message):
 		"""Helper constructor for action messages"""
-		return cls(target, ('ACTION', message))
+		return cls(client, target, ('ACTION', message))
 
 class List(Command):
 	def from_args(self, *channels):
