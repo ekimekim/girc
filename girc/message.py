@@ -320,7 +320,9 @@ class Mode(Command):
 		return result
 
 
-class Privmsg(Command):
+class PrivmsgBase(Command):
+	"""Common functionality of Privmsg and Notice"""
+
 	def from_args(self, target, msg):
 		"""Target can be user, channel or list of users
 		msg can alternately be a tuple (ctcp_command, ctcp_arg)
@@ -369,6 +371,12 @@ class Privmsg(Command):
 	def action(cls, client, target, message):
 		"""Helper constructor for action messages"""
 		return cls(client, target, ('ACTION', message))
+
+class Privmsg(PrivmsgBase):
+	pass
+
+class Notice(PrivmsgBase):
+	pass
 
 class List(Command):
 	def from_args(self, *channels):
