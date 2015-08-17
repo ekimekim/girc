@@ -609,7 +609,7 @@ class Client(object):
 	@Handler(command='PRIVMSG', ctcp=lambda v: v and v[0].upper() == 'VERSION')
 	def ctcp_version(self, client, msg):
 		if self.version:
-			self.msg(msg.reply_target, ('VERSION', self.version))
+			message.Notice(self, msg.reply_target, ('VERSION', self.version)).send()
 
 	@Handler(command='PRIVMSG', ctcp=lambda v: v and v[0].upper() == 'TIME')
 	def ctcp_time(self, client, msg):
@@ -620,12 +620,12 @@ class Client(object):
 		else:
 			return
 		now = time.strftime('%s|%F %T', now)
-		self.msg(msg.reply_target, ('TIME', now))
+		message.Notice(self, msg.reply_target, ('TIME', now)).send()
 
 	@Handler(command='PRIVMSG', ctcp=lambda v: v and v[0].upper() == 'PING')
 	def ctcp_ping(self, client, msg):
 		cmd, arg = msg.ctcp
-		self.msg(msg.reply_target, ('PING', arg))
+		message.Notice(self, msg.reply_target, ('PING', arg)).send()
 
 	def _get_handoff_data(self):
 		"""Collect all data needed for a connection handoff and return as dict.
