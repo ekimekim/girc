@@ -5,10 +5,10 @@ from girc.replycodes import replies
 
 
 class UserDispatchMeta(type):
-	"""Metaclass so that multiple Users with the same client and nick (and are active)
+	"""Metaclass so that multiple Users with the same client and nick (and are up to date)
 	instead return the same instance."""
 	def __call__(self, client, nick):
-		if nick not in client._users or not client._users[nick].active:
+		if nick not in client._users or not client._users[nick].up_to_date:
 			return super(UserDispatchMeta, self).__call_(client, nick)
 		return client._users[nick]
 
@@ -28,16 +28,25 @@ class User(object):
 	account = None
 	metadata = {}
 
-	active = True # whether this User object is up to date, ie. we're confident the nick is correct.
-
 	def __init__(self, client, nick):
 		self.client = client
 		self.nick = nick
 		self.client._users[nick] = self
 
 	@property
-	def channels(self):
-		"""A map {channel: highest status mode} for channels the user is in"""
+	def up_to_date(self):
+		"""whether this User object is up to date. Non-up-to-date users might have incorrect nick.
+		Importantly, another user may have taken the old nick, causing all values to be wrong for that nick."""
+		return True # TODO
+
+	@property
+	def channels(self, up_to_date=None):
+		"""A map {channel: highest status mode} for channels the user is in.
+		If up_to_date is True, omit channels where our data may be stale.
+		Default is to match self.up_to_date (ie. only display stale values if user also may be stale)"""
+		if up_to_date is None:
+			up_to_date = self.up_to_date
+		# TODO up to date
 		results = {}
 		for channel in self.client._channels.values():
 			try:
