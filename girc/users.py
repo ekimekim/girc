@@ -85,7 +85,7 @@ def register_handlers(client):
 	@with_user
 	def whois_channels(user, *channels):
 		# channels is normally one space-seperated arg, but might be seperate args - normalize
-		channels = (' '.join(channels)).split(' ')
+		channels = ' '.join(channels).split(' ')
 		all_prefixes = [prefix for mode, prefix in client.server_properties.prefixes]
 		for name in channels:
 			prefixes = ''
