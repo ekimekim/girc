@@ -66,7 +66,7 @@ def register_handlers(client):
 
 	@command(replies.WHOISUSER)
 	@with_user
-	def whois_user(user, ident, host, realname):
+	def whois_user(user, ident, host, _, realname):
 		user.ident = ident
 		user.host = host
 		user.realname = realname
