@@ -18,7 +18,8 @@ class User(object):
 
 	ident = None
 	realname = None
-	host = None
+	host = None # our best guess at true host
+	display_host = None # the most recent host they're asking us to use
 
 	server = None
 	secure = False
@@ -47,6 +48,22 @@ class User(object):
 				results[channel] = mode
 		return results
 
+	def add_host(self, host):
+		"""A user's 'host' can switch between the actual host and a hostmask.
+		We want to differentiate between current apparent host and our best guess at the host.
+		We do this by assuming a host we can resolve with DNS is better than one we can't.
+		"""
+		if self.display_host == host:
+			# optimization: don't retry if we've already looked at this host
+			return
+		self.display_host = host
+		if host is not None:
+			try:
+				socket.gethostbyname(host)
+			except socket.gaierror:
+				return
+		self.host = host
+
 
 def register_handlers(client):
 	"""Register handlers for given client to capture user info"""
@@ -64,11 +81,19 @@ def register_handlers(client):
 			return fn(user, *msg.params[1:])
 		return _with_user
 
+	@client.handler()
+	def user_from_all_messages(client, msg):
+		if not msg.user:
+			return # no msg.user, assume msg was from server
+		user = User(client, msg.sender)
+		user.ident = msg.user
+		user.add_host(msg.host)
+
 	@command(replies.WHOISUSER)
 	@with_user
 	def whois_user(user, ident, host, _, realname):
 		user.ident = ident
-		user.host = host
+		user.add_host(host)
 		user.realname = realname
 
 	@command(replies.WHOISSERVER)
