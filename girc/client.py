@@ -47,7 +47,8 @@ class Client(object):
 	PING_IDLE_WRITE_ONLY = False
 
 	def __init__(self, hostname, nick, port=DEFAULT_PORT, password=None, nickserv_password=None,
-		         ident=None, real_name=None, stop_handler=[], logger=None, version='girc', time='local'):
+		         ident=None, real_name=None, stop_handler=[], logger=None, version='girc', time='local',
+		         twitch=False):
 		"""Create a new IRC connection to given host and port.
 		ident and real_name are optional args that control how we report ourselves to the server
 		(they both default to nick).
@@ -62,6 +63,7 @@ class Client(object):
 			You may alternatively pass in a list of multiple callbacks.
 			Note that after instantiation you can add/remove further disconnect callbacks
 			by manipulating the client.stop_handlers set.
+		twitch=True sets some special behaviour for better operation with twitch.tv's unique variant of IRC.
 		"""
 		self.hostname = hostname
 		self.port = port
@@ -109,6 +111,9 @@ class Client(object):
 			self.stop_handlers.add(stop_handler)
 		else:
 			self.stop_handlers.update(stop_handler)
+
+		if twitch:
+			message.Message(self, 'CAP', 'REQ', 'twitch.tv/membership twitch.tv/commands').send()
 
 		if self.nickserv_password:
 			self.msg('NickServ', 'IDENTIFY {}'.format(self.nickserv_password))
