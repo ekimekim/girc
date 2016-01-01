@@ -20,11 +20,44 @@ class InvalidMessage(Exception):
 		return "Message {self.data!r} could not be parsed: {self.message}".format(self=self)
 
 
+TAG_ESCAPES = {
+	';': r'\:',
+	' ': r'\s',
+	'\\': r'\\',
+	'\r': r'\r',
+	'\n': r'\n',
+}
+TAG_UNESCAPES = {v: k for k, v in TAG_ESCAPES.items()}
+
+def _translate_escapes(mapping, value):
+	result = ''
+	buf = ''
+	for c in value:
+		buf += c
+		if buf in mapping:
+			result += mapping[buf]
+			buf = ''
+		elif any(key.startswith(buf) for key in mapping):
+			pass # allow buf to continue growing
+		else:
+			result += buf
+			buf = ''
+	result += buf
+	return result
+
+def encode_tag_value(value):
+	return _translate_escapes(TAG_ESCAPES, value)
+
+def decode_tag_value(value):
+	return _translate_escapes(TAG_UNESCAPES, value)
+
+
 def decode(line, client):
 	"""Decode a message. Client is needed as some messages require server properties to parse correctly."""
 	sender = None
 	user = None
 	host = None
+	tags = None
 
 	line = line.strip('\r\n')
 	for c in '\r\n\0':
@@ -32,11 +65,22 @@ def decode(line, client):
 			raise InvalidMessage(line, "Illegal character {!r}".format(c))
 	words = filter(None, line.split(' '))
 
+	# IRCv3 message tags
+	if words[0].startswith('@'):
+		tags = words.pop(0)
+		tags = tags[1:] # strip leading @
+		tags = tags.split(';')
+		tags = [tag.split('=', 1) if '=' in tag else (tag, True) for tag in tags]
+		tags = {key: decode_tag_value(value) for key, value in tags}
+
 	if words[0].startswith(':'):
 		prefix = words.pop(0)
 		prefix = prefix[1:] # strip leading :
 		if '@' in prefix:
-			prefix, host = prefix.split('@', 1)
+			# as user may contain a '@', we need to take only the last @
+			parts = prefix.split('@')
+			prefix = '@'.join(parts[:-1])
+			host = parts[-1]
 		if '!' in prefix:
 			prefix, user = prefix.split('!', 1)
 		sender = prefix
@@ -53,7 +97,7 @@ def decode(line, client):
 		params.append(words.pop(0))
 
 	try:
-		return Message(client, command, *params, sender=sender, user=user, host=host)
+		return Message(client, command, *params, sender=sender, user=user, host=host, tags=tags)
 	except Exception:
 		ex_type, ex, tb = sys.exc_info()
 		new_ex = InvalidMessage(line, "{cls.__name__}: {ex}".format(cls=type(ex), ex=ex))
@@ -96,6 +140,7 @@ class Message(object):
 		self.sender = kwargs.pop('sender', None)
 		self.user = kwargs.pop('user', None)
 		self.host = kwargs.pop('host', None)
+		self.tags = kwargs.pop('tags', None)
 		if kwargs:
 			raise TypeError("Unexpected kwargs: {}".format(kwargs))
 
@@ -108,6 +153,15 @@ class Message(object):
 			if self.host:
 				prefix += '@{}'.format(self.host)
 			parts = [prefix] + parts
+		if self.tags:
+			tags = []
+			for key, value in self.tags.items():
+				if value is True:
+					tags.append(key)
+				else:
+					tags.append("{}={}".format(key, encode_tag_value(value)))
+			tags = ';'.join(tags)
+			parts = ['@{}'.format(tags)] + parts
 		if self.params:
 			params = list(self.params)
 			last_param = params.pop()
@@ -132,7 +186,7 @@ class Message(object):
 	def __eq__(self, other):
 		if not isinstance(other, Message):
 			return False
-		ATTRS = {'sender', 'user', 'host', 'command', 'params'}
+		ATTRS = {'tags', 'sender', 'user', 'host', 'command', 'params'}
 		return all(getattr(self, attr) == getattr(other, attr) for attr in ATTRS)
 
 	def __str__(self):
@@ -159,7 +213,7 @@ class Command(Message):
 	def __init__(self, client, *args, **kwargs):
 		"""We allow params to be set via command-specific args (see from_args)
 		or directly with params kwarg (this is mainly useful when decoding)"""
-		EXTRACT = {'sender', 'user', 'host', 'params'}
+		EXTRACT = {'sender', 'user', 'host', 'params', 'tags'}
 		extracted = {}
 		for key in EXTRACT:
 			if key in kwargs:
