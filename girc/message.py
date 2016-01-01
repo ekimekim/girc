@@ -190,7 +190,7 @@ class Message(object):
 		return all(getattr(self, attr) == getattr(other, attr) for attr in ATTRS)
 
 	def __str__(self):
-		return "<{cls.__name__} ({self.sender!r}, {self.user!r}, {self.host!r}) {args}>".format(
+		return "<{cls.__name__} ({self.sender!r}, {self.user!r}, {self.host!r}, {self.tags!r}) {args}>".format(
 			self = self,
 			cls = type(self),
 			args = [self.command] + list(self.params)
