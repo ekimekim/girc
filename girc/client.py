@@ -113,7 +113,7 @@ class Client(object):
 			self.stop_handlers.update(stop_handler)
 
 		if twitch:
-			message.Message(self, 'CAP', 'REQ', 'twitch.tv/membership twitch.tv/commands').send()
+			message.Message(self, 'CAP', 'REQ', 'twitch.tv/membership twitch.tv/commands twitch.tv/tags').send()
 
 		if self.nickserv_password:
 			self.msg('NickServ', 'IDENTIFY {}'.format(self.nickserv_password))
