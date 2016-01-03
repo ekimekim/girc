@@ -317,6 +317,12 @@ class Client(object):
 				self._nick = self.increment_nick(self._nick)
 				reg_send(message.Nick(self, self._nick))
 
+			# quakenet requires we still respond to PINGs even before registration
+			# (it will not let us finish registration until we PONG)
+			@self.handler(command=message.Ping)
+			def reg_got_ping(client, msg):
+				reg_send(message.Pong(self, msg.payload))
+
 			if self.password:
 				reg_send(message.Message(self, 'PASS', self.password))
 			reg_send(message.Nick(self, self._nick))
