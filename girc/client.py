@@ -15,6 +15,8 @@ import gevent.event
 import gevent.lock
 from gevent import socket
 
+from chunkprioqueue import ChunkedPriorityQueue
+
 from girc import message
 from girc import replycodes
 from girc.handler import Handler, BoundHandler
@@ -77,8 +79,12 @@ class Client(object):
 		self._users = weakref.WeakValueDictionary()
 
 		self._recv_queue = gevent.queue.Queue()
-		self._send_queue = gevent.queue.Queue()
-		self._registration_queue = gevent.queue.Queue()
+		self._send_queue = ChunkedPriorityQueue()
+		# Message priorities are used as follows:
+		# -2: Critical registration messages with strict ordering
+		# -1: PONGs sent in reply to PINGs, required to not get disconnected
+		# 0: Other high-priority tasks - changing NICK, sending idle PINGs, etc
+		# >0: User messages
 		self._group = gevent.pool.Group()
 		self._activity = gevent.event.Event() # set each time we send or recv, for idle watchdog
 		self._stopped = gevent.event.AsyncResult() # contains None if exited cleanly, else set with exception
@@ -116,7 +122,7 @@ class Client(object):
 			message.Message(self, 'CAP', 'REQ', 'twitch.tv/membership twitch.tv/commands twitch.tv/tags').send()
 
 		if self.nickserv_password:
-			self.msg('NickServ', 'IDENTIFY {}'.format(self.nickserv_password))
+			self.msg('NickServ', 'IDENTIFY {}'.format(self.nickserv_password), priority=0)
 
 		# Register Handler methods
 		Handler.register_all(self, self)
@@ -144,7 +150,6 @@ class Client(object):
 		def handoff_start():
 			client.started = True
 			client.logger.debug("Starting using alternate handoff start")
-			client._registration_queue.put((None, None)) # skip straight to main send queue
 			client._start_greenlets()
 		client.start = handoff_start
 
@@ -213,11 +218,11 @@ class Client(object):
 				self._new_nick = new_nick
 				nick_msg = message.Nick(self, new_nick)
 				try:
-					nick_msg.send()
+					nick_msg.send(priority=0)
 					# by waiting for messages, we force ourselves to wait until the Nick() has been processed
-					self.wait_for_messages()
+					self.wait_for_messages(priority=0)
 				except Exception:
-					self.quit("Unrecoverable error while changing nick")
+					self.quit("Unrecoverable error while changing nick", priority=-1)
 					raise
 				self._nick = self._new_nick # note that self._new_nick may not be new_nick, see forced_nick_change()
 			finally:
@@ -266,14 +271,13 @@ class Client(object):
 		"""
 		return Handler(client=self, callback=callback, **match_args)
 
-	def _send(self, message, callback, _registration=False):
+	def _send(self, message, callback, priority):
 		"""A low level interface to send a message. You normally want to use Message.send() instead.
 		Callback is called after message is sent, and takes args (client, message).
 		Callback may be None.
 		"""
-		self.logger.debug("Queuing message {}".format(message))
-		queue = self._registration_queue if _registration else self._send_queue
-		queue.put((message, callback))
+		self.logger.debug("Queuing message {} at prio {}".format(message, priority))
+		self._send_queue.put((priority, (message, callback)))
 
 	def _start_greenlets(self):
 		"""Start standard greenlets that should always run, and put them in a dict indexed by their name,
@@ -301,39 +305,42 @@ class Client(object):
 			self.stop(ex)
 			raise
 
-		self._start_greenlets()
-
 		# registration is a delicate dance...
-		reg_send = lambda msg: self._send(msg, None, _registration=True)
-		with self._nick_lock:
-
+		with self._nick_lock, self._send_queue.limit_to(-1):
+			# by limiting to 0, we block all messages except pongs and registration
 			reg_done = gevent.event.Event()
-			@self.handler(command=replycodes.replies.WELCOME)
+			reg_handlers = set()
+
+			@self.handler(command=replycodes.replies.WELCOME, sync=True)
 			def reg_got_welcome(client, msg):
 				reg_done.set()
+				for handler in reg_handlers:
+					handler.unregister(self)
+			reg_handlers.add(reg_got_welcome)
 
-			@self.handler(command=replycodes.errors.NICKNAMEINUSE)
+			# Some anal servers require sending registration messages in a precise order
+			# and/or can't handle PINGs being sent during registration. This makes the standard
+			# nick-setting behaviour unsuitable. We're pretty sure we won't get a NICK
+			# forced change from the server during registration, so we only need to special-case
+			# handle a NICKNAMEINUSE message, and send the Nick() message manually.
+			@self.handler(command=replycodes.errors.NICKNAMEINUSE, sync=True)
 			def reg_nick_in_use(client, msg):
 				self._nick = self.increment_nick(self._nick)
-				reg_send(message.Nick(self, self._nick))
-
-			# quakenet requires we still respond to PINGs even before registration
-			# (it will not let us finish registration until we PONG)
-			@self.handler(command=message.Ping)
-			def reg_got_ping(client, msg):
-				reg_send(message.Pong(self, msg.payload))
+				message.Nick(self, self._nick).send(priority=-2)
+			reg_handlers.add(reg_nick_in_use)
 
 			if self.password:
-				reg_send(message.Message(self, 'PASS', self.password))
-			reg_send(message.Nick(self, self._nick))
-			reg_send(message.User(self, self.ident, self.real_name))
+				message.Message(self, 'PASS', self.password).send(priority=-2)
+			message.Nick(self, self._nick).send(priority=-2)
+			message.User(self, self.ident, self.real_name).send(priority=-2)
+
+			self._start_greenlets()
 
 			if not reg_done.wait(self.REGISTRATION_TIMEOUT):
 				ex = Exception("Registration timeout")
 				self.stop(ex)
 				raise ex
 
-			self._registration_queue.put((None, None)) # sentinel value makes send_loop move on to real send_queue
 			self.logger.debug("Registration complete")
 
 	def _idle_watchdog(self):
@@ -345,7 +352,7 @@ class Client(object):
 					self._activity.clear()
 					continue
 				self.logger.info("No activity for {}s, sending PING".format(self.PING_IDLE_TIME))
-				if not self.wait_for_messages(self.PING_TIMEOUT):
+				if not self.wait_for_messages(self.PING_TIMEOUT, priority=0):
 					self.logger.error("No response to watchdog PING after {}s".format(self.PING_TIMEOUT))
 					self.stop(ConnectionClosed())
 					return
@@ -382,14 +389,10 @@ class Client(object):
 		self.stop(error or ConnectionClosed())
 
 	def _send_loop(self):
-		send_queue = self._registration_queue
+		send_queue = self._send_queue
 		try:
 			while True:
-				message, callback = send_queue.get()
-				if (message, callback) == (None, None):
-					assert send_queue is self._registration_queue, "Sentinel recieved on normal send queue"
-					send_queue = self._send_queue
-					continue
+				priority, (message, callback) = send_queue.get()
 				line = "{}\r\n".format(message.encode())
 				self.logger.debug("Sending message: {!r}".format(line))
 				try:
@@ -497,14 +500,14 @@ class Client(object):
 
 		gevent.spawn(_stop).join()
 
-	def msg(self, to, content, block=False):
+	def msg(self, to, content, priority=16, block=False):
 		"""Shortcut to send a Privmsg. See Message.send()"""
-		message.Privmsg(self, to, content).send(block=block)
+		message.Privmsg(self, to, content).send(priority=priority, block=block)
 
-	def quit(self, msg=None, block=True):
+	def quit(self, msg=None, priority=16, block=True):
 		"""Shortcut to send a Quit. See Message.send().
 		Note that sending a quit automatically stops the client."""
-		message.Quit(self, msg).send()
+		message.Quit(self, msg).send(priority=priority)
 		if block:
 			self.wait_for_stop()
 
@@ -531,7 +534,7 @@ class Client(object):
 		"""Wait for client to exit, raising if it failed"""
 		self._stopped.get()
 
-	def wait_for_messages(self, timeout=None):
+	def wait_for_messages(self, timeout=None, priority=16):
 		"""This function will attempt to block until the server has received and processed
 		all current messages. We rely on the fact that servers will generally react to messages
 		in order, and so we queue up a Ping and wait for the corresponding Pong."""
@@ -572,7 +575,7 @@ class Client(object):
 
 	@Handler(command=message.Ping)
 	def on_ping(self, client, msg):
-		message.Pong(client, msg.payload).send()
+		message.Pong(client, msg.payload).send(priority=-1)
 
 	@Handler(command=replycodes.errors.NICKNAMEINUSE, sync=True)
 	def nick_in_use(self, client, msg):
@@ -636,6 +639,7 @@ class Client(object):
 	@Handler(command='PRIVMSG', ctcp=lambda v: v and v[0].upper() == 'PING')
 	def ctcp_ping(self, client, msg):
 		cmd, arg = msg.ctcp
+		# XXX does this make sense to send at faster prio?
 		message.Notice(self, msg.reply_target, ('PING', arg)).send()
 
 	def _get_handoff_data(self):
@@ -668,6 +672,9 @@ class Client(object):
 		# in practice, things should be unlikely to hit trap.
 		def trap(*a, **k): raise Exception("Connection is being handed off, messages cannot be sent")
 		self._send = trap
+		# since we need to clear send queue, it makes no sense to try to hand off while it is limited
+		if self._send_queue.get_limit() is not None:
+			raise Exception("Can't hand off while send queue is limited")
 		# We re-use the activity flag to check queue after each message is sent
 		while True:
 			self._activity.clear()

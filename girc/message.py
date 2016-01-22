@@ -168,18 +168,25 @@ class Message(object):
 			parts += params + [':{}'.format(last_param)]
 		return ' '.join(map(str, parts))
 
-	def send(self, callback=None, block=False):
+	def send(self, callback=None, priority=16, block=False):
 		"""Send message. If callback given, call when message sent.
 		Callback takes args (client, message)
 		If block=True, waits until message is sent before returning.
 		You cannot pass both callback and block=True (callback is ignored).
 		Note that if you simply need to ensure message Y is sent after message X,
-		waiting is not required - messages are always sent in submitted order.
+		waiting is usually not required - all messages of equal priority
+		are always sent in submitted order.
+		Messages of a lower numeric priority will be sent before any pending messages of
+		a higher priority. This may be useful on occasion when sending large numbers of messages.
+		There is no limit on what priorities can be used, although a very large number of
+		unique priority values may cause excess memory usage.
+		All priorities <= 0 are reserved for use by the library itself, and using these priorities
+		may interfere with its operation.
 		"""
 		if block:
 			event = gevent.event.Event()
 			callback = lambda client, msg: event.set()
-		self.client._send(self, callback)
+		self.client._send(self, callback, priority)
 		if block:
 			event.wait()
 
