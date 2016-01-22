@@ -94,7 +94,7 @@ class Client(object):
 		# self._nick: what we think the server thinks our nick is. when our nick is in the process
 		#             of changing, this is the OLD nick.
 		# self._new_nick: None unless it is in the process of changing. When changing, the nick we
-
+		#                 are switching to.
 		# We can only attempt to change our nick when it is not in the middle of changing (we do this
 		# by holding self._nick_lock). If we get a forced nick change x -> y while changing, it changes
 		# self._nick if x is the old nick, or self._new_nick if x is the new nick.
