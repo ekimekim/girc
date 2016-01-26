@@ -164,39 +164,32 @@ class Client(object):
 		return new_client
 
 	@classmethod
-	def from_sock_handoff(cls, sock_path, **init_args):
-		"""Creates a unix socket at given path and waits for another process to connect to it.
-		Expects the connecting process to send it a socket fd and handoff data - see client.handoff_to_sock()
+	def from_sock_handoff(cls, recv_sock, **init_args):
+		"""Takes a unix socket connection and uses it to receive a connection handoff.
+		Expects the remote process to send it a socket fd and handoff data - see client.handoff_to_sock()
 		While most init args are provided by handoff data, others (eg. logger) can be passed in as extra kwargs.
+		Note this method will block until the connection is closed.
 		"""
 		connection = None
 		try:
-			with closing(socket.socket(socket.AF_UNIX)) as listener:
-				listener.bind(sock_path)
-				listener.listen(128)
-				recv_sock, addr = listener.accept()
-				with closing(recv_sock):
-					# receive fd from other process
-					fd = recv_fd(recv_sock)
-					connection = socket.fromfd(fd, socket.AF_INET, socket.SOCK_STREAM)
+			# receive fd from other process
+			fd = recv_fd(recv_sock)
+			connection = socket.fromfd(fd, socket.AF_INET, socket.SOCK_STREAM)
 
-					# receive other args as json
-					handoff_data = ''
-					s = True
-					while s: # loop until closed
-						s = recv_sock.recv(4096)
-						handoff_data += s
-					handoff_data = json.loads(handoff_data)
+			# receive other args as json
+			handoff_data = ''
+			s = True
+			while s: # loop until closed
+				s = recv_sock.recv(4096)
+				handoff_data += s
+			handoff_data = json.loads(handoff_data)
 
-					handoff_data.update(init_args)
-					return cls._from_handoff(connection, **handoff_data)
+			handoff_data.update(init_args)
+			return cls._from_handoff(connection, **handoff_data)
 		except Exception:
 			if connection:
 				connection.close()
 			raise
-		finally:
-			if os.path.exists(sock_path):
-				os.remove(sock_path)
 
 	@property
 	def stopped(self):
@@ -688,15 +681,13 @@ class Client(object):
 		"""Actually report stop once we have fully handed off."""
 		self.stop()
 
-	def handoff_to_sock(self, sock_path):
-		"""Connect to given unix socket path and hand off connection to other process via it."""
-		with closing(socket.socket(socket.AF_UNIX)) as send_sock:
-			send_sock.connect(sock_path)
+	def handoff_to_sock(self, send_sock):
+		"""Takes a unix socket and hands off connection to other process via it.
+		Note that the receiving end will not complete until you close the connection."""
+		self._prepare_for_handoff()
+		handoff_data = json.dumps(self._get_handoff_data())
 
-			self._prepare_for_handoff()
-			handoff_data = json.dumps(self._get_handoff_data())
-
-			send_fd(send_sock, self._socket)
-			send_sock.sendall(handoff_data)
+		send_fd(send_sock, self._socket)
+		send_sock.sendall(handoff_data)
 
 		self._finalize_handoff()

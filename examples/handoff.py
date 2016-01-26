@@ -1,5 +1,7 @@
 
 import logging
+import os
+import socket
 
 from girc.client import Client
 
@@ -11,12 +13,25 @@ def main(path, mode, *args):
 		client = Client(host, nick)
 		client.start()
 		client.msg('ekimekim', 'sent from sender', block=True)
-		client.handoff_to_sock(path)
+
+		try:
+			listener = socket.socket(socket.AF_UNIX)
+			listener.bind(path)
+			listener.listen(128)
+			sock, _ = listener.accept()
+		finally:
+			os.remove(path)
+
+		client.handoff_to_sock(sock)
+
 	elif mode == 'recv':
-		client = Client.from_sock_handoff(path)
+		sock = socket.socket(socket.AF_UNIX)
+		sock.connect(path)
+		client = Client.from_sock_handoff(sock)
 		client.start()
 		client.msg('ekimekim', 'sent from receiver')
 		client.quit()
+
 	else:
 		raise ValueError("bad mode: must be send or recv")
 
