@@ -270,6 +270,9 @@ class Client(object):
 		Callback may be None.
 		"""
 		self.logger.debug("Queuing message {} at prio {}".format(message, priority))
+		if self._stopping:
+			self.logger.debug("Dropping message as we are stopping")
+			return
 		self._send_queue.put((priority, (message, callback)))
 
 	def _start_greenlets(self):
