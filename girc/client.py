@@ -360,12 +360,17 @@ class Client(object):
 		error = None
 		try:
 			while True:
+				if self._kill_recv:
+					return
+				self._recv_waiting = True
 				try:
 					data = self._socket.recv(4096)
 				except socket.error as ex:
 					if ex.errno == errno.EINTR: # retry on EINTR
 						continue
 					raise
+				finally:
+					self._recv_waiting = False
 				if not data:
 					self.logger.info("no data from recv, socket closed")
 					break
@@ -375,8 +380,6 @@ class Client(object):
 					self._activity.set()
 				for line in lines:
 					self._process(line)
-				if self._kill_recv:
-					return
 		except Exception as ex:
 			self.logger.exception("error in _recv_loop")
 			error = ex
@@ -661,6 +664,9 @@ class Client(object):
 
 		self._named_greenlets['_idle_watchdog'].kill(block=True)
 		self._kill_recv = True # recv_loop will exit after processing current lines
+		if self._recv_waiting:
+			# recv_loop is stuck in a socket.recv call and should be bumped out
+			self._named_greenlets['_recv_loop'].kill(socket.error(errno.EINTR, "recv_loop is being killed"), block=False)
 		self._named_greenlets['_recv_loop'].get()
 
 		# we are now no longer recving messages - we set a trap on _send(), then wait for send_queue to drain.
