@@ -7,6 +7,7 @@ import random
 import string
 import time
 import weakref
+from base64 import b64encode, b64decode
 from contextlib import closing
 
 import gevent.queue
@@ -139,7 +140,7 @@ class Client(object):
 		client = cls(**init_args)
 		client.logger.info("Initializing client from handoff args ({} channels)".format(len(channels)))
 		client._socket = sock
-		client._recv_buf = recv_buf
+		client._recv_buf = b64decode(recv_buf)
 		client.stop_handlers.add(lambda client: client._socket.close())
 
 		for name in channels:
@@ -183,6 +184,8 @@ class Client(object):
 				s = recv_sock.recv(4096)
 				handoff_data += s
 			handoff_data = json.loads(handoff_data)
+			handoff_data = {k: v.encode('utf-8') if isinstance(v, unicode) else v
+			                for k, v in handoff_data.items()}
 
 			handoff_data.update(init_args)
 			return cls._from_handoff(connection, **handoff_data)
@@ -644,7 +647,7 @@ class Client(object):
 		"""Collect all data needed for a connection handoff and return as dict.
 		Make sure _prepare_for_handoff has been called first."""
 		return dict(
-			recv_buf = self._recv_buf,
+			recv_buf = b64encode(self._recv_buf),
 			channels = [channel.name for channel in self._channels.values() if channel.joined],
 			hostname = self.hostname,
 			nick = self._nick,
