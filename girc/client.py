@@ -521,6 +521,11 @@ class Client(object):
 			Channel(self, name) # this will register itself into _channels
 		return self._channels[name]
 
+	@property
+	def joined_channels(self):
+		"""Returns a list of channels we are currently joined to"""
+		return set(channel for channel in self._channels.values() if channel.joined)
+
 	def wait_for(self, **match_args):
 		"""Block until a message matching given args is received.
 		The matching message is returned.
