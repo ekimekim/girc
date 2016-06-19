@@ -54,7 +54,7 @@ class Channel(object):
 		@gevent.spawn
 		def _part():
 			# we delay unregistering until the part is sent.
-			self.client.send(Part(self.name), block=True)
+			Part(self.client, self.name).send(block=True)
 			self.users_ready.clear()
 			self.users.unregister()
 		if block: _part.get()
