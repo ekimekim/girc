@@ -23,7 +23,7 @@ Some features that the library will take care of for you:
 
 A basic example:
 
-from geventirc import Client
+from girc import Client
 
 nick = 'examplebot'
 client = Client('myhost', nick=nick)
