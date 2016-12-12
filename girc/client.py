@@ -2,13 +2,11 @@
 import errno
 import json
 import logging
-import os
 import random
 import string
 import time
 import weakref
 from base64 import b64encode, b64decode
-from contextlib import closing
 
 import gevent.queue
 import gevent.pool
@@ -47,7 +45,6 @@ class Client(object):
 	WAIT_FOR_MESSAGES_TIMEOUT = 10
 	PING_IDLE_TIME = 60
 	PING_TIMEOUT = 30
-	PING_IDLE_WRITE_ONLY = False
 
 	def __init__(self, hostname, nick, port=DEFAULT_PORT, password=None, nickserv_password=None,
 		         ident=None, real_name=None, stop_handler=[], logger=None, version='girc', time='local',
