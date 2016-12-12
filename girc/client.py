@@ -14,13 +14,12 @@ import gevent.event
 import gevent.lock
 from gevent import socket
 
-from chunkprioqueue import ChunkedPriorityQueue
-
 from girc import message
 from girc import replycodes
 from girc.handler import Handler, BoundHandler
 from girc.server_properties import ServerProperties
 from girc.channel import Channel
+from girc.chunkprioqueue import ChunkedPriorityQueue
 from girc.common import send_fd, recv_fd
 
 
