@@ -140,6 +140,9 @@ class Client(object):
 		client.stop_handlers.add(lambda client: client._socket.close())
 
 		for name in channels:
+			# name may have come from a JSON object. Assume utf8.
+			if isinstance(name, unicode):
+				name = name.encode('utf8')
 			channel = client.channel(name)
 			channel._join() # note we don't send a JOIN
 			message.Message(client, 'NAMES', name).send() # re-sync user list
