@@ -145,7 +145,7 @@ class Message(object):
 			raise TypeError("Unexpected kwargs: {}".format(kwargs))
 
 	def encode(self):
-		parts = [self.command]
+		parts = [str(self.command)]
 		if self.sender or self.user or self.host:
 			prefix = ':{}'.format(self.sender or '')
 			if self.user:
@@ -164,9 +164,13 @@ class Message(object):
 			parts = ['@{}'.format(tags)] + parts
 		if self.params:
 			params = list(self.params)
+			if any(isinstance(param, unicode) for param in params):
+				self.client.logger.warning("Unencoded unicode params in message: {}".format(self))
+				# this should be avoided, but sometimes happens by accident - unicode() strings get into the params
+				params = [param.encode('utf8') if isinstance(param, unicode) else param for param in params]
 			last_param = params.pop()
 			parts += params + [':{}'.format(last_param)]
-		return ' '.join(map(str, parts))
+		return ' '.join(parts)
 
 	def send(self, callback=None, priority=16, block=False):
 		"""Send message. If callback given, call when message sent.
