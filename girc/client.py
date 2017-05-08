@@ -206,7 +206,18 @@ class Client(object):
 	@nick.setter
 	def nick(self, new_nick):
 		"""Change the nick safely. Note this will block until the change is sent, acknowledged
-		and self.nick is updated.
+		and self.nick is updated. Will attempt to increment nick if it's already taken."""
+		for _ in range(6):
+			# Note we max out after 5 increments - if we're still getting conflicts with that search space (10^5),
+			# something weirder is going on (like the nick not being valid, which we don't have detection for).
+			if self.try_change_nick(new_nick):
+				return
+			new_nick = self.increment_nick(new_nick)
+
+	def try_change_nick(self, new_nick):
+		"""Change the nick safely. Note this will block until the change is sent, acknowledged
+		and self.nick is updated. Returns True if we managed to change to the desired nick,
+		False otherwise.
 		"""
 		with self._nick_lock:
 			try:
@@ -220,6 +231,7 @@ class Client(object):
 					self.quit("Unrecoverable error while changing nick", priority=-1)
 					raise
 				self._nick = self._new_nick # note that self._new_nick may not be new_nick, see forced_nick_change()
+				return self._nick == new_nick
 			finally:
 				# either we completed successfully or we aborted
 				# either way, we need to no longer be in the middle of changing nicks
@@ -597,17 +609,6 @@ class Client(object):
 			# if we aren't changing nicks...
 			if bad_nick != self._nick:
 				return # this is some kind of race cdn
-		# if we've made it here, we want to increment our nick
-		# since the first part had to be done before sync but this part may block,
-		# we spawn a seperate greenlet to finish later.
-		@self._group.spawn
-		def wait_and_increment():
-			with self._nick_lock:
-				# now that we've waited for any other operations to finish, let's double check
-				# that we're still talking about the same nick
-				if bad_nick != self._nick:
-					return
-				self.nick = self.increment_nick(self._nick)
 
 	@Handler(command='NICK', sender=matches_nick, sync=True)
 	def forced_nick_change(self, client, msg):
