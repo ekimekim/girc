@@ -13,6 +13,7 @@ import gevent.pool
 import gevent.event
 import gevent.lock
 from gevent import socket
+from gevent import ssl
 
 from girc import message
 from girc import replycodes
@@ -47,7 +48,7 @@ class Client(object):
 
 	def __init__(self, hostname, nick, port=DEFAULT_PORT, password=None, nickserv_password=None,
 		         ident=None, real_name=None, stop_handler=[], logger=None, version='girc', time='local',
-		         twitch=False):
+		         twitch=False, ssl=False):
 		"""Create a new IRC connection to given host and port.
 		ident and real_name are optional args that control how we report ourselves to the server
 		(they both default to nick).
@@ -63,6 +64,8 @@ class Client(object):
 			Note that after instantiation you can add/remove further disconnect callbacks
 			by manipulating the client.stop_handlers set.
 		twitch=True sets some special behaviour for better operation with twitch.tv's unique variant of IRC.
+		ssl=True will cause the socket to connect using SSL.
+		ssl='insecure' will connect using SSL, however no attempt will be made to make the connection secure!
 		"""
 		self.hostname = hostname
 		self.port = port
@@ -72,6 +75,7 @@ class Client(object):
 		self.real_name = real_name or nick
 		self.version = version
 		self.time = time
+		self.ssl = ssl
 		self._channels = {}
 		self._users = weakref.WeakValueDictionary()
 
@@ -132,6 +136,7 @@ class Client(object):
 		recv_buf may contain data that was read from the socket but not processed (eg. a partial line)
 		channels is a list of joined channels
 		init args must match the ones from the handing off Client.
+		Handing off of an SSL socket is not supported.
 		"""
 		client = cls(**init_args)
 		client.logger.info("Initializing client from handoff args ({} channels)".format(len(channels)))
@@ -308,6 +313,9 @@ class Client(object):
 		self.logger.info("Starting client for {self.nick} on {self.hostname}:{self.port}".format(self=self))
 		try:
 			self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			if self.ssl:
+				context = ssl.SSLContext(ssl.PROTOCOL_SSLv23) if self.ssl == 'insecure' else ssl.create_default_context()
+				self._socket = context.wrap_socket(self._socket, server_hostname=self.hostname)
 			self.stop_handlers.add(lambda self: self._socket.close())
 			self._socket.connect((self.hostname, self.port))
 		except Exception as ex:
@@ -666,6 +674,10 @@ class Client(object):
 		"""Stop operations and prepare for a connection handoff.
 		Note that, among other things, this stops the client from responding to PINGs from the server,
 		and so effectively begins a timeout until the server drops the connection."""
+
+		if self.ssl:
+			raise ValueError("Handing off of an ssl connection is not supported")
+
 		# wait until we aren't changing nick, then permanently acquire the lock to prevent further changes
 		# (note that forced_nick_change could still change it, but that's ok because we're stopping recv_loop)
 		self._nick_lock.acquire()
