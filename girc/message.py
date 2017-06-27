@@ -123,6 +123,21 @@ class MessageDispatchMeta(type):
 
 
 class Message(object):
+	"""Represents a single IRC protocol message. Subclasses represent specific well-known
+	message types with specialized behaviour, but this class can represent any arbitrary
+	message within the IRC 'framing' protocol.
+	Creating a Message() with a well-known type will dispatch to the correct subclass.
+	Members of note:
+		command, params: The command and params of the message.
+		sender, user, host: Prefix info of the message.
+		tags: Either a dict, or None. If present, represents IRCv3 tags attached to the message.
+		      Note that when sending, it is the caller's responsibility to ensure the remote
+		      can understand tags, since they will always be sent if not None.
+		received_at: Wall clock time at which message arrived. You should not use this to
+		             calculate time since it was receieved, use since_received() instead.
+		extra: A dict provided for the user to store any additional data in for the purpose
+		       of passing around attached to the message, for convenience.
+	"""
 	__metaclass__ = MessageDispatchMeta
 
 	def __init__(self, client, command, *params, **kwargs):
@@ -141,6 +156,7 @@ class Message(object):
 		self.user = kwargs.pop('user', None)
 		self.host = kwargs.pop('host', None)
 		self.tags = kwargs.pop('tags', None)
+		self.extra = {}
 		if kwargs:
 			raise TypeError("Unexpected kwargs: {}".format(kwargs))
 
