@@ -42,7 +42,7 @@ class Client(object):
 	_stopping = False
 
 	REGISTRATION_TIMEOUT = 5
-	WAIT_FOR_MESSAGES_TIMEOUT = 10
+	WAIT_FOR_MESSAGES_TIMEOUT = 20
 	PING_IDLE_TIME = 60
 	PING_TIMEOUT = 30
 
@@ -225,21 +225,28 @@ class Client(object):
 		False otherwise.
 		"""
 		with self._nick_lock:
+			self.logger.debug("Attempting to change nick {!r} -> {!r}".format(self._nick, new_nick))
 			try:
 				self._new_nick = new_nick
 				nick_msg = message.Nick(self, new_nick)
 				try:
 					nick_msg.send(priority=0)
 					# by waiting for messages, we force ourselves to wait until the Nick() has been processed
-					self.wait_for_messages(priority=0)
+					if not self.wait_for_messages(priority=0):
+						self.logger.warning((
+							"Timed out waiting for sync after sending NICK for change {!r}->{!r} - "
+							"assuming NICK change went through (this means we might have the wrong nick!)"
+						).format(self._nick, new_nick))
 				except Exception:
 					self.quit("Unrecoverable error while changing nick", priority=-1)
 					raise
+				self.logger.debug("Changed nick {!r} -> {!r}".format(self._nick, self._new_nick))
 				self._nick = self._new_nick # note that self._new_nick may not be new_nick, see forced_nick_change()
 				return self._nick == new_nick
 			finally:
 				# either we completed successfully or we aborted
 				# either way, we need to no longer be in the middle of changing nicks
+				self.logger.debug("Clearing _new_nick")
 				self._new_nick = None
 
 	def matches_nick(self, value):
@@ -605,18 +612,23 @@ class Client(object):
 
 	@Handler(command=replycodes.errors.NICKNAMEINUSE, sync=True)
 	def nick_in_use(self, client, msg):
-		bad_nick = msg.params[1]
+		server_nick, bad_nick = msg.params[:2] # server_nick is what server thinks our nick is right now
 		self.logger.debug("Nick {!r} in use (our nick: {!r} -> {!r})".format(bad_nick, self._nick, self._new_nick))
 		if self._new_nick:
 			# if we're changing nicks, ignore it unless it matches the new one
-			if bad_nick != self._new_nick:
-				return
-			# cancel current change and wait
-			self._new_nick = self._nick
-		else:
-			# if we aren't changing nicks...
-			if bad_nick != self._nick:
-				return # this is some kind of race cdn
+			if bad_nick == self._new_nick:
+				# cancel current change
+				self.logger.debug("New nick in use, cancelling")
+				self._new_nick = self._nick
+			return
+		# if we aren't changing nicks, something has gone wrong.
+		self.logger.warning("Got nick-in-use while not changing nicks, _nick={!r}, params={!r}".format(self._nick, msg.params))
+		if bad_nick != self._nick:
+			return # this is some kind of weird race, but ok to ignore
+		# if we've reached here, we must have messed up earlier and thought we got a nick when we didn't.
+		# easiest way to recover: force our nick back to whatever the server thinks it is right now.
+		self.logger.warning("Recovering from nick-in-use confusion by forcing nick {!r} -> {!r}".format(self._nick, server_nick))
+		self._nick = server_nick
 
 	@Handler(command='NICK', sender=matches_nick, sync=True)
 	def forced_nick_change(self, client, msg):
