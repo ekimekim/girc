@@ -25,12 +25,23 @@ class ChunkedPriorityQueue(gevent.queue.Queue):
 	# Implementation: self.queue is a dict {priority: deque}
 
 	limit = None
+	DUMMY = object()
 
-	def _init(self, maxsize, items=[]):
-		self.queue = defaultdict(deque)
+	def __init__(self, *args, **kwargs):
+		maxsize = kwargs.get('maxsize')
+		if args:
+			maxsize = args[0]
+		if maxsize is not None:
+			raise Exception("bounded queue not supported")
+		super(ChunkedPriorityQueue, self).__init__(*args, **kwargs)
 		self._limits = {}
+
+	def _create_queue(self, items=()):
+		queue = defaultdict(deque)
 		for item in items:
-			self._put(item)
+			priority, data = item
+			self.queue[priority].append(data)
+		return queue
 
 	def qsize(self):
 		limit = self.get_limit()
@@ -38,6 +49,8 @@ class ChunkedPriorityQueue(gevent.queue.Queue):
 				   if limit is None or priority <= limit)
 
 	def _put(self, item):
+		if item is self.DUMMY:
+			return
 		priority, data = item
 		self.queue[priority].append(data)
 
@@ -67,8 +80,9 @@ class ChunkedPriorityQueue(gevent.queue.Queue):
 			self._limits.pop(None, None)
 		else:
 			self._limits[None] = limit
-		# try to unblock any pending gets
-		self._schedule_unlock()
+		# try to unblock any pending gets using a dummy put,
+		# which schedules an _unlock() as a side effect
+		self.put(self.DUMMY)
 
 	def limit_to(self, limit):
 		"""Apply a limit for the duration of a code block"""
@@ -78,7 +92,7 @@ class ChunkedPriorityQueue(gevent.queue.Queue):
 				parent._limits[self] = limit
 			def __exit__(self, *exc_info):
 				del parent._limits[self]
-				# try to unblock any pending gets
-				parent._schedule_unlock()
+				# try to unblock any pending gets using a dummy put
+				parent.put(parent.DUMMY)
 		return _LimitContext()
 
