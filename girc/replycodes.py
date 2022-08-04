@@ -133,4 +133,4 @@ replies = dotdict(
 )
 
 # lookup by number
-codes = {v: k for k, v in errors.items() + replies.items()}
+codes = {v: k for k, v in list(errors.items()) + list(replies.items())}

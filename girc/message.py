@@ -10,6 +10,10 @@ from monotonic import monotonic
 from girc import replycodes
 from girc.common import classproperty, subclasses, iterable, int_equals
 
+try:
+	basestring
+except NameError:
+	basestring = str
 
 class InvalidMessage(Exception):
 	def __init__(self, data, message):
@@ -118,7 +122,13 @@ def decode(line, client):
 	except Exception:
 		ex_type, ex, tb = sys.exc_info()
 		new_ex = InvalidMessage(line, "{cls.__name__}: {ex}".format(cls=type(ex), ex=ex))
-		raise type(new_ex), new_ex, tb
+		# each of these ways to raise an error is a syntax error in the other version,
+		# so we wrap them in "exec" to avoid parsing them until we know which branch of the if
+		# we want to run.
+		if sys.version_info.major >= 3:
+			exec("raise new_ex.with_traceback(tb) from None")
+		else:
+			exec("raise type(new_ex), new_ex, tb")
 
 
 class MessageDispatchMeta(type):
@@ -139,7 +149,19 @@ class MessageDispatchMeta(type):
 		return super(MessageDispatchMeta, self).__call__(client, command, *params, **kwargs)
 
 
-class Message(object):
+if sys.version_info.major >= 3:
+	exec("""
+class MessageBase(metaclass=MessageDispatchMeta):
+	pass
+""")
+else:
+	exec("""
+class MessageBase(object):
+	__metaclass__ = MessageDispatchMeta
+""")
+
+
+class Message(MessageBase):
 	"""Represents a single IRC protocol message. Subclasses represent specific well-known
 	message types with specialized behaviour, but this class can represent any arbitrary
 	message within the IRC 'framing' protocol.
@@ -155,7 +177,6 @@ class Message(object):
 		extra: A dict provided for the user to store any additional data in for the purpose
 		       of passing around attached to the message, for convenience.
 	"""
-	__metaclass__ = MessageDispatchMeta
 
 	def __init__(self, client, command, *params, **kwargs):
 		"""Takes optional kwargs sender, user and host
@@ -197,10 +218,6 @@ class Message(object):
 			parts = ['@{}'.format(tags)] + parts
 		if self.params:
 			params = list(self.params)
-			if any(isinstance(param, unicode) for param in params):
-				self.client.logger.warning("Unencoded unicode params in message: {}".format(self))
-				# this should be avoided, but sometimes happens by accident - unicode() strings get into the params
-				params = [param.encode('utf8') if isinstance(param, unicode) else param for param in params]
 			last_param = params.pop()
 			parts += params + [':{}'.format(last_param)]
 		return ' '.join(parts)
@@ -323,7 +340,7 @@ class Join(Command):
 
 		names, keys = zip(*keys.items()) if keys else [], []
 		names += list(nokeys)
-		names = map(self.client.normalize_channel, names)
+		names = list(map(self.client.normalize_channel, names))
 
 		if not names:
 			raise TypeError('No channels given')

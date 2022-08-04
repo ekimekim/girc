@@ -37,7 +37,7 @@ class Client(object):
 	started = False
 
 	# some insight into the state of _recv_loop to allow for smooth connection handoff
-	_recv_buf = ''
+	_recv_buf = b''
 	_kill_recv = False
 	_stopping = False
 
@@ -146,7 +146,7 @@ class Client(object):
 
 		for name in channels:
 			# name may have come from a JSON object. Assume utf8.
-			if isinstance(name, unicode):
+			if str is bytes and isinstance(name, unicode):
 				name = name.encode('utf8')
 			channel = client.channel(name)
 			channel._join() # note we don't send a JOIN
@@ -188,8 +188,9 @@ class Client(object):
 				s = recv_sock.recv(4096)
 				handoff_data += s
 			handoff_data = json.loads(handoff_data)
-			handoff_data = {k: v.encode('utf-8') if isinstance(v, unicode) else v
-			                for k, v in handoff_data.items()}
+			if str is bytes:
+				handoff_data = {k: v.encode('utf-8') if isinstance(v, unicode) else v
+				                for k, v in handoff_data.items()}
 
 			handoff_data.update(init_args)
 			return cls._from_handoff(connection, **handoff_data)
@@ -403,11 +404,12 @@ class Client(object):
 				if not data:
 					self.logger.info("no data from recv, socket closed")
 					break
-				lines = (self._recv_buf + data).split('\r\n')
+				lines = (self._recv_buf + data).split(b'\r\n')
 				self._recv_buf = lines.pop() # everything after final \r\n
 				if lines:
 					self._activity.set()
 				for line in lines:
+					line = line.decode('utf-8', 'surrogateescape')
 					self._process(line)
 		except Exception as ex:
 			self.logger.exception("error in _recv_loop")
@@ -423,6 +425,8 @@ class Client(object):
 				priority, (message, callback) = send_queue.get()
 				line = "{}\r\n".format(message.encode())
 				self.logger.debug("Sending message: {!r}".format(line))
+				if str is not bytes:
+					line = line.encode('utf-8', 'surrogateescape')
 				try:
 					self._socket.sendall(line)
 				except socket.error as ex:
@@ -654,9 +658,9 @@ class Client(object):
 
 	@Handler(command='PRIVMSG', ctcp=lambda v: v and v[0].upper() == 'TIME')
 	def ctcp_time(self, client, msg):
-		if self.time is 'utc':
+		if self.time == 'utc':
 			now = time.gmtime()
-		elif self.time is 'local':
+		elif self.time == 'local':
 			now = time.localtime()
 		else:
 			return
@@ -671,7 +675,7 @@ class Client(object):
 	def _get_handoff_data(self):
 		"""Collect all data needed for a connection handoff and return as dict.
 		Make sure _prepare_for_handoff has been called first."""
-		return dict(
+		data = dict(
 			recv_buf = b64encode(self._recv_buf),
 			channels = [channel.name for channel in self._channels.values() if channel.joined],
 			hostname = self.hostname,
@@ -681,6 +685,9 @@ class Client(object):
 			ident = self.ident,
 			real_name = self.real_name,
 		)
+		if str is not bytes:
+			data['recv_buf'] = data['recv_buf'].encode()
+		return data
 
 	def _prepare_for_handoff(self):
 		"""Stop operations and prepare for a connection handoff.

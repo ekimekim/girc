@@ -26,7 +26,7 @@ class ServerProperties(dotdict):
 		modes, prefs = match.groups()
 		if len(modes) != len(prefs):
 			raise ValueError("PREFIX modes don't match prefixes: {!r}".format(self.PREFIX))
-		return zip(modes, prefs)
+		return list(zip(modes, prefs))
 
 	@property
 	def channel_modes(self):
