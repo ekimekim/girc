@@ -63,18 +63,34 @@ def decode(line, client):
 	for c in '\r\n\0':
 		if c in line:
 			raise InvalidMessage(line, "Illegal character {!r}".format(c))
-	words = filter(None, line.split(' '))
+
+	remaining_line = [line]
+	def split_word():
+		# Get next word, ignoring multiple consecutive spaces.
+		# Returns (word, remainder). remainder may begin with space.
+		# Note word == '' if and only if remaining_line == ''
+		parts = remaining_line[0].lstrip(' ').split(' ', 1)
+		if len(parts) == 1:
+			return parts[0], ''
+		return parts
+	def peek_word():
+		word, remainder = split_word()
+		return word
+	def pop_word():
+		word, remainder = split_word()
+		remaining_line[0] = remainder
+		return word
 
 	# IRCv3 message tags
-	if words[0].startswith('@'):
-		tags = words.pop(0)
+	if peek_word().startswith('@'):
+		tags = pop_word()
 		tags = tags[1:] # strip leading @
 		tags = tags.split(';')
 		tags = [tag.split('=', 1) if '=' in tag else (tag, True) for tag in tags]
 		tags = {key: decode_tag_value(value) for key, value in tags}
 
-	if words[0].startswith(':'):
-		prefix = words.pop(0)
+	if peek_word().startswith(':'):
+		prefix = pop_word()
 		prefix = prefix[1:] # strip leading :
 		if '@' in prefix:
 			# as user may contain a '@', we need to take only the last @
@@ -85,16 +101,17 @@ def decode(line, client):
 			prefix, user = prefix.split('!', 1)
 		sender = prefix
 
-	if not words:
+	if peek_word() == '':
 		raise InvalidMessage(line, "no command given")
-	command = words.pop(0).upper()
+	command = pop_word().upper()
 
 	params = []
-	while words:
-		if words[0].startswith(':'):
-			params.append(' '.join(words)[1:])
+	while peek_word():
+		if peek_word().startswith(':'):
+			# everything after the : should be copied verbatim, without splitting
+			params.append(remaining_line[0].lstrip()[1:])
 			break
-		params.append(words.pop(0))
+		params.append(pop_word())
 
 	try:
 		return Message(client, command, *params, sender=sender, user=user, host=host, tags=tags)
