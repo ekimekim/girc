@@ -580,7 +580,7 @@ class Client(object):
 		# Also, some servers set the payload to their server name in the reply
 		# and attach the payload as a second arg. Finally, we just dump a reasonable timeout
 		# over the whole thing, just in case.
-		payload = ''.join(random.choice(string.lowercase + string.digits) for x in range(8))
+		payload = ''.join(random.choice(string.ascii_lowercase + string.digits) for x in range(8))
 		received = gevent.event.Event()
 		def match_payload(params):
 			return any(value.lower() == payload for value in params)
