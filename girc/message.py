@@ -126,9 +126,9 @@ def decode(line, client):
 		# so we wrap them in "exec" to avoid parsing them until we know which branch of the if
 		# we want to run.
 		if sys.version_info.major >= 3:
-			exec("raise new_ex.with_traceback(tb) from None")
+			exec("raise new_ex.with_traceback(tb) from None", locals())
 		else:
-			exec("raise type(new_ex), new_ex, tb")
+			exec("raise type(new_ex), new_ex, tb", locals())
 
 
 class MessageDispatchMeta(type):
